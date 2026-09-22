@@ -3141,6 +3141,7 @@
     clearQuoteHighlights();
     setPendingHighlight(null);
     clearGlossaryHighlights();
+    hideRenderOverlay(true);
     document.querySelectorAll(
       '.grdc-hoverable, .grdc-collapsible, .grdc-section-collapsed, .grdc-collapsed-hidden, .grdc-thread-range, .grdc-range-hover'
     ).forEach((el) => {
@@ -3387,7 +3388,11 @@
     const sidebar = document.querySelector('.grdc-sidebar');
     const root = document.documentElement;
     if (!sidebar) {
+      // Nothing of ours is on the page any more: drop the classes and the
+      // custom properties, or GitHub's own layout keeps our top and left
+      // offsets after the reader navigates away.
       root.classList.remove('grdc-topbar-on', 'grdc-panel-docked');
+      root.style.removeProperty('--grdc-panel-w');
       return;
     }
     const open = panelIsOpen();
@@ -3583,6 +3588,7 @@
     // before any file was toggled — confusing for first-time users.)
     if (!prInfo) {
       sidebar?.remove();
+      applyLayout();
       return;
     }
 
@@ -3594,6 +3600,17 @@
     // we always show it on rich-diff pages and let them hide it if it's
     // unwanted. The Outline tab's own emptiness handling still kicks in
     // when there are no headings at all.
+    // A PR without OpenSpec files gets nothing from us unless the reader
+    // asks for it: no bar, no panel, no automatic rendering. The whole UI
+    // appears as soon as a Markdown file is switched to rich diff by hand.
+    const hasSpecFiles = prOpenSpecPaths().length > 0;
+    const renderedFiles = document.querySelectorAll('.prose-diff').length;
+    if (!hasSpecFiles && renderedFiles === 0) {
+      sidebar?.remove();
+      applyLayout();
+      return;
+    }
+
     const headingCount = document.querySelectorAll(
       '.prose-diff .markdown-body h1, .prose-diff .markdown-body h2, .prose-diff .markdown-body h3, .prose-diff .markdown-body h4, .prose-diff .markdown-body h5, .prose-diff .markdown-body h6'
     ).length;
@@ -6071,7 +6088,10 @@
     let justRendered = false;
     let holdingOverlay = false;
     const path = window.location.pathname;
-    if (autoRenderEnabled() && autoRenderedPath !== path) {
+    // Automatic rendering is for OpenSpec pull requests. Everywhere else
+    // the reader decides when to switch a file to rich diff.
+    const prHasSpec = prOpenSpecPaths().length > 0;
+    if (autoRenderEnabled() && prHasSpec && autoRenderedPath !== path) {
       const expectedMd = (routeData?.diffSummaries || []).filter(f => isMarkdownPath(f.path)).length;
       const alreadyRich = document.querySelectorAll('.prose-diff').length;
       // Cover the page only when there is really something to render.
@@ -6362,6 +6382,7 @@
         stale.remove();
       }
       clearInjectedDom();
+      applyLayout();
       return;
     }
     console.log(`[GRDC] URL changed → ${path}, running init()`);

@@ -151,3 +151,25 @@ test.describe('keyboard shortcuts', () => {
     expect(collapsedAfter).toBe(collapsedBefore);
   });
 });
+
+test.describe('leaving no trace', () => {
+  test('navigating away removes the bar and the page offsets', async ({ page }) => {
+    await setupExtensionPage(page, 'yaml-frontmatter', {
+      rawSource: { [fm.path]: fm.source },
+    });
+    await expect(page.locator('.grdc-sidebar')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.className)).toContain('grdc-topbar-on');
+
+    // Leave the changed-files view the way GitHub's own tabs do.
+    await page.evaluate(() => history.pushState({}, '', '/test-owner/test-repo/pull/1'));
+    await expect.poll(() => page.evaluate(() => document.documentElement.className), { timeout: 5000 })
+      .not.toContain('grdc-topbar-on');
+    await expect(page.locator('.grdc-sidebar')).toHaveCount(0);
+    const offsets = await page.evaluate(() => {
+      const s = getComputedStyle(document.body);
+      return { top: parseFloat(s.paddingTop), left: parseFloat(s.paddingLeft) };
+    });
+    expect(offsets.top).toBe(0);
+    expect(offsets.left).toBe(0);
+  });
+});
