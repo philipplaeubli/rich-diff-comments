@@ -55,6 +55,9 @@
     buildOpenSpecOutline,
     countThreadsInRange,
     plainInline,
+    parseGlossary,
+    buildGlossaryMatcher,
+    findGlossaryMatches,
   } = (typeof window !== 'undefined' && window.GRDC) || {};
 
   // Firefox: a content script's global `fetch` runs with the extension's
@@ -3096,6 +3099,7 @@
     ).forEach((el) => el.remove());
     clearQuoteHighlights();
     setPendingHighlight(null);
+    clearGlossaryHighlights();
     document.querySelectorAll(
       '.grdc-hoverable, .grdc-collapsible, .grdc-section-collapsed, .grdc-collapsed-hidden, .grdc-thread-range, .grdc-range-hover'
     ).forEach((el) => {
@@ -4659,6 +4663,196 @@
   // Distinct from thread-nav (`j`/`k`): a brand-new PR with zero comments
   // still has changes to navigate — typically the first thing a reviewer
   // wants when opening a Markdown file for the first time.
+  // ── Glossary terms ───────────────────────────────────────────────────────────
+  //
+  // If the repository has a GLOSSARY.md, terms from it are underlined in the
+  // rendered Markdown (first occurrence per block, to keep the page calm), and
+  // hovering one shows its definition. Uses the CSS Custom Highlight API, so
+  // GitHub's DOM is never changed. Shift+G toggles it; parsing lives in
+  // src/lib/glossary.js.
+
+  const GLOSSARY_KEY = 'grdc_glossary_enabled';
+  const GLOSSARY_CANDIDATES = ['GLOSSARY.md', 'docs/GLOSSARY.md', 'openspec/GLOSSARY.md'];
+  const glossaryHighlight = HAS_HIGHLIGHTS ? new Highlight() : null;
+  if (glossaryHighlight) CSS.highlights.set('grdc-glossary', glossaryHighlight);
+  let glossary = null;          // { path, entries, matcher } | null
+  let glossaryLoading = null;   // Promise while loading
+  let glossaryHits = new Map(); // text node → [{ start, end, entry, range }]
+
+  function glossaryEnabled() {
+    try { return localStorage.getItem(GLOSSARY_KEY) !== '0'; } catch (_) { return true; }
+  }
+
+  async function loadGlossary() {
+    if (glossary !== null) return glossary;
+    if (glossaryLoading) return glossaryLoading;
+    glossaryLoading = (async () => {
+      // A glossary changed in this PR wins over the default locations.
+      const inPr = [];
+      pathDigestMap.forEach((p) => { if (/(^|\/)GLOSSARY\.md$/i.test(p)) inPr.push(p); });
+      for (const path of [...inPr, ...GLOSSARY_CANDIDATES]) {
+        const src = await fetchRawSource(document, path);
+        if (!src) continue;
+        const entries = parseGlossary(src);
+        if (entries.length === 0) continue;
+        console.log(`[GRDC] Glossary: ${entries.length} terms from ${path}`);
+        return { path, entries, matcher: buildGlossaryMatcher(entries) };
+      }
+      return false;
+    })();
+    glossary = await glossaryLoading;
+    glossaryLoading = null;
+    return glossary;
+  }
+
+  function clearGlossaryHighlights() {
+    if (glossaryHighlight) glossaryHighlight.clear();
+    glossaryHits = new Map();
+    hideGlossaryPop();
+  }
+
+  async function applyGlossaryHighlights() {
+    clearGlossaryHighlights();
+    if (!glossaryHighlight || !glossaryEnabled()) return;
+    const g = await loadGlossary();
+    if (!g || !g.matcher) return;
+    clearGlossaryHighlights();
+
+    const seenNodes = new Set();
+    fileLineMap.forEach((info, block) => {
+      if (!block.isConnected || block.tagName === 'PRE') return;
+      if (info.path === g.path) return; // the glossary itself
+      const usedTerms = new Set();
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (seenNodes.has(node)) continue;
+        seenNodes.add(node);
+        const parent = node.parentElement;
+        if (!parent || parent.closest('code, pre, kbd, .grdc-existing-thread, .grdc-comment-box, .grdc-reply-box, .grdc-comment-btn, .grdc-collapse-toggle')) continue;
+        if (isInDeletedBlock(parent)) continue;
+        for (const hit of findGlossaryMatches(node.nodeValue, g.matcher)) {
+          if (usedTerms.has(hit.entry)) continue;
+          usedTerms.add(hit.entry);
+          const range = document.createRange();
+          range.setStart(node, hit.start);
+          range.setEnd(node, hit.end);
+          glossaryHighlight.add(range);
+          if (!glossaryHits.has(node)) glossaryHits.set(node, []);
+          glossaryHits.get(node).push({ ...hit, range });
+        }
+      }
+    });
+  }
+
+  function toggleGlossary() {
+    const next = !glossaryEnabled();
+    try { localStorage.setItem(GLOSSARY_KEY, next ? '1' : '0'); } catch (_) {}
+    if (next) applyGlossaryHighlights();
+    else clearGlossaryHighlights();
+  }
+
+  // ── Glossary popup ──
+
+  let glossaryPop = null;
+  let glossaryPopEntry = null;
+  let glossaryHideTimer = null;
+  let glossaryShowTimer = null;
+
+  function hideGlossaryPop() {
+    clearTimeout(glossaryShowTimer);
+    clearTimeout(glossaryHideTimer);
+    if (glossaryPop) glossaryPop.remove();
+    glossaryPop = null;
+    glossaryPopEntry = null;
+  }
+
+  function glossaryInlineHtml(text) {
+    return escapeHtml(text)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  }
+
+  function showGlossaryPop(entry, rect) {
+    if (glossaryPopEntry === entry && glossaryPop) return;
+    hideGlossaryPop();
+    const pop = document.createElement('div');
+    pop.className = 'grdc-glossary-pop';
+    pop.setAttribute('role', 'tooltip');
+    const headOid = routeData?.comparison?.fullDiff?.headOid || routeData?.comparison?.headOid ||
+      prInfo?.headOid || discoverCommitOids().head;
+    const href = headOid && prInfo
+      ? `https://github.com/${prInfo.owner}/${prInfo.repo}/blob/${headOid}/${encodeURI(glossary.path)}#L${entry.line}`
+      : null;
+    pop.innerHTML = `
+      <div class="grdc-glossary-pop-head">
+        <span class="grdc-glossary-pop-term">${escapeHtml(entry.term)}</span>
+        ${entry.section ? `<span class="grdc-glossary-pop-section">${escapeHtml(entry.section)}</span>` : ''}
+      </div>
+      <div class="grdc-glossary-pop-def">${glossaryInlineHtml(entry.definition || '')}</div>
+      <div class="grdc-glossary-pop-foot">
+        ${href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(glossary.path)}:${entry.line}</a>` : escapeHtml(glossary.path)}
+        <span>Shift+G hides terms</span>
+      </div>
+    `;
+    pop.addEventListener('mouseenter', () => clearTimeout(glossaryHideTimer));
+    pop.addEventListener('mouseleave', () => { glossaryHideTimer = setTimeout(hideGlossaryPop, 200); });
+    document.body.appendChild(pop);
+    const width = pop.offsetWidth;
+    const left = Math.max(8, Math.min(rect.left, document.documentElement.clientWidth - width - 8));
+    pop.style.left = `${window.scrollX + left}px`;
+    pop.style.top = `${window.scrollY + rect.bottom + 6}px`;
+    glossaryPop = pop;
+    glossaryPopEntry = entry;
+  }
+
+  function glossaryHitAt(x, y) {
+    let node = null;
+    let offset = 0;
+    if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(x, y);
+      if (pos) { node = pos.offsetNode; offset = pos.offset; }
+    } else if (document.caretRangeFromPoint) {
+      const r = document.caretRangeFromPoint(x, y);
+      if (r) { node = r.startContainer; offset = r.startOffset; }
+    }
+    const hits = node && glossaryHits.get(node);
+    if (!hits) return null;
+    for (const hit of hits) {
+      if (offset < hit.start || offset > hit.end) continue;
+      // The caret API snaps to the nearest character; make sure the pointer
+      // is really over the term.
+      for (const rect of hit.range.getClientRects()) {
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return { hit, rect };
+      }
+    }
+    return null;
+  }
+
+  let glossaryMoveFrame = 0;
+  document.addEventListener('mousemove', (e) => {
+    if (glossaryHits.size === 0 || glossaryMoveFrame) return;
+    const { clientX, clientY, target } = e;
+    glossaryMoveFrame = requestAnimationFrame(() => {
+      glossaryMoveFrame = 0;
+      if (target instanceof Element && target.closest('.grdc-glossary-pop')) return;
+      const found = glossaryHitAt(clientX, clientY);
+      if (found) {
+        clearTimeout(glossaryHideTimer);
+        if (glossaryPopEntry === found.hit.entry) return;
+        clearTimeout(glossaryShowTimer);
+        glossaryShowTimer = setTimeout(() => showGlossaryPop(found.hit.entry, found.rect), 250);
+      } else {
+        clearTimeout(glossaryShowTimer);
+        if (glossaryPop && !glossaryHideTimer) {
+          glossaryHideTimer = setTimeout(() => { glossaryHideTimer = null; hideGlossaryPop(); }, 200);
+        }
+      }
+    });
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideGlossaryPop(); });
+
   // ── Sidebar: OpenSpec pane ───────────────────────────────────────────────────
   //
   // When a PR touches `openspec/` files, the Spec tab shows the change as a
@@ -5207,6 +5401,13 @@
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Shift+G — show / hide glossary terms. (Plain `g` starts GitHub's own
+    // key chords, so it stays untouched.)
+    if (e.key === 'G' && e.shiftKey) {
+      e.preventDefault();
+      toggleGlossary();
+      return;
+    }
     // `c` — comment on the current text selection.
     if (e.key === 'c' && !e.shiftKey) {
       const target = currentSelectionTarget();
@@ -5498,6 +5699,7 @@
     console.log(`[GRDC] Fetched ${existingComments.length} existing comments`);
     renderExistingComments();
     buildThreadsSidebar();
+    applyGlossaryHighlights().catch((e) => console.log('[GRDC] Glossary failed:', e.message));
 
     // If the page loaded with a heading hash (e.g. user clicked a TOC link
     // before our init finished), the browser's native scroll-to-anchor will
@@ -5558,6 +5760,7 @@
               node.classList?.contains('grdc-comment-edit') ||
               node.classList?.contains('grdc-comment-menu-popover') ||
               node.classList?.contains('grdc-selection-pop') ||
+              node.classList?.contains('grdc-glossary-pop') ||
               node.classList?.contains('grdc-sidebar')) continue;
           if (node.classList?.contains('markdown-body') ||
               node.classList?.contains('rich-diff-level-one') ||

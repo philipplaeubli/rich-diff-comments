@@ -15,6 +15,10 @@ The extension finds the exact source line (or line range) of the selection, also
 
 When a PR changes files under `openspec/`, the sidebar gets a Spec tab (shortcut `4`). It shows each change as an outline: the proposal sections, each capability with its ADDED, MODIFIED, REMOVED, and RENAMED requirements and their scenarios, and the tasks with progress. It also shows thread counts, and a warning for each requirement without a scenario or without SHALL or MUST. The outline reads the raw files, so it works before you render any file. Click a row to jump to the rendered block, or to the source-diff line if the file is not in rich diff.
 
+## Glossary terms
+
+If the repository has a `GLOSSARY.md` (at the root, in `docs/`, or in `openspec/`, or changed in the PR), terms from it get a dotted underline in the rendered Markdown. Hover a term to see its definition, its section, and a link to its line in the glossary. Only the first occurrence of a term in each block is underlined. Press `Shift+G` to hide or show the terms. Entries use the form `- **term** — definition`, and `**a / b**` defines two names for one entry.
+
 ## Install in Firefox
 
 Firefox release builds only install signed extensions. Pick one of these:

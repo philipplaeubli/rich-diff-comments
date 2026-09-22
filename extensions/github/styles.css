@@ -1950,3 +1950,63 @@ li.grdc-hoverable .grdc-comment-btn {
   height: 100%;
   background: var(--fgColor-success, #1a7f37);
 }
+
+/* ── Glossary terms ──────────────────────────────────────────────────── */
+
+::highlight(grdc-glossary) {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--fgColor-accent, #0969da);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
+.grdc-glossary-pop {
+  position: absolute;
+  z-index: 1001;
+  max-width: 380px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fgColor-default, var(--color-fg-default, #24292f));
+  background: var(--bgColor-default, var(--color-canvas-default, #ffffff));
+  border: 1px solid var(--borderColor-default, var(--color-border-default, #d0d7de));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.grdc-glossary-pop-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.grdc-glossary-pop-term {
+  font-weight: 600;
+}
+
+.grdc-glossary-pop-section,
+.grdc-glossary-pop-foot {
+  font-size: 11px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-glossary-pop-def code {
+  padding: 0 4px;
+  font-size: 12px;
+  background: var(--bgColor-neutral-muted, var(--color-neutral-muted, rgba(175, 184, 193, 0.2)));
+  border-radius: 4px;
+}
+
+.grdc-glossary-pop-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+}
+
+.grdc-glossary-pop-foot a {
+  color: var(--fgColor-accent, #0969da);
+}
