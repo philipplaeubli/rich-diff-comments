@@ -8,7 +8,7 @@
  * pressing the key.
  *
  * Covers the shortcuts content.js binds at the document level:
- *   • `t`         — toggle sidebar collapsed / expanded
+ *   • `t`         — open / close the panel
  *   • `Shift+T`   — reset sidebar position / size
  *   • `1` / `2` / `3` — switch sidebar to Changes / Threads / Outline (1.5.0 order)
  *   • `[` / `]`   — prev / next change card
@@ -30,72 +30,54 @@ test.describe('keyboard shortcuts', () => {
     });
   });
 
-  test('pressing `t` toggles the sidebar between expanded and collapsed', async ({ page }) => {
-    // After init the sidebar should exist (frontmatter has no threads but
-    // 1.1.0 made the sidebar always-on for any PR rich-diff page).
+  test('pressing `t` opens and closes the panel, and the top bar stays', async ({ page }) => {
     const sidebar = page.locator('.grdc-sidebar');
+    const panel = page.locator('.grdc-panel');
     await expect(sidebar).toBeVisible({ timeout: 5000 });
 
-    const wasCollapsedBefore = await sidebar.evaluate((el) =>
-      el.classList.contains('grdc-sidebar-collapsed')
-    );
-
+    const openBefore = await sidebar.evaluate((el) => el.classList.contains('grdc-panel-open'));
     await page.keyboard.press('t');
-
-    const isCollapsedAfter = await sidebar.evaluate((el) =>
-      el.classList.contains('grdc-sidebar-collapsed')
-    );
-    expect(isCollapsedAfter).toBe(!wasCollapsedBefore);
-
-    // Toggle back to confirm round-trip.
+    await expect(panel).toBeVisible({ visible: !openBefore });
     await page.keyboard.press('t');
-    const finalState = await sidebar.evaluate((el) =>
-      el.classList.contains('grdc-sidebar-collapsed')
-    );
-    expect(finalState).toBe(wasCollapsedBefore);
+    await expect(panel).toBeVisible({ visible: openBefore });
+    // The bar itself never disappears, whatever the panel does.
+    await expect(sidebar).toBeVisible();
   });
 
-  test('collapsing the sidebar keeps it visible with both nav clusters intact', async ({ page }) => {
-    // 2026-06 design: collapsed mode keeps both nav clusters (Changes +
-    // Threads) visible because the at-a-glance counters are the whole
-    // point of the slim strip. The collapsed sidebar must reserve
-    // enough width (`min-width: 300px` in CSS) to fit both clusters
-    // plus filter + book icons on one row.
+  test('the top bar spans the window and pushes the page down', async ({ page }) => {
     const sidebar = page.locator('.grdc-sidebar');
-    await expect(sidebar).toBeVisible();
-
-    // Ensure we start expanded — t toggles, so if the saved state was
-    // collapsed press once to expand first.
-    const startsCollapsed = await sidebar.evaluate((el) =>
-      el.classList.contains('grdc-sidebar-collapsed')
-    );
-    if (startsCollapsed) await page.keyboard.press('t');
-
-    // Now collapse with `t`.
-    await page.keyboard.press('t');
-    await expect(sidebar).toHaveClass(/grdc-sidebar-collapsed/);
-
-    // Sidebar element itself is still visible (not display:none).
-    await expect(sidebar).toBeVisible();
-
-    // Sidebar bounding box is at least as wide as the CSS min-width
-    // (300px floor) — anything narrower means the collapsed strip
-    // couldn't reserve room for both nav clusters and they'd clip.
     const box = await sidebar.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box.width).toBeGreaterThanOrEqual(400);
-    expect(box.height).toBeGreaterThan(20);
-
-    // Both nav clusters MUST stay visible in collapsed mode — that's the
-    // whole reason for the wide min-width. Hiding them was a v2 fix that
-    // got reverted in v3 because it removed the counter that made the
-    // collapsed strip useful.
+    const viewport = page.viewportSize();
+    expect(box.x).toBe(0);
+    expect(box.y).toBe(0);
+    expect(box.width).toBe(viewport.width);
+    expect(box.height).toBeLessThanOrEqual(56);
+    // The page content starts below the bar instead of under it.
+    const padding = await page.evaluate(() => parseFloat(getComputedStyle(document.body).paddingTop));
+    expect(padding).toBeGreaterThanOrEqual(box.height - 2);
+    // Both nav clusters and the panel toggle stay reachable in the bar.
     await expect(page.locator('.grdc-sidebar-nav')).toBeVisible();
     await expect(page.locator('.grdc-sidebar-changes-nav')).toBeVisible();
-
-    // Collapse toggle button must STAY visible — without it the user
-    // would be trapped in collapsed mode.
     await expect(page.locator('.grdc-sidebar-collapse')).toBeVisible();
+  });
+
+  test('a docked panel pushes the content aside, floating does not', async ({ page }) => {
+    const sidebar = page.locator('.grdc-sidebar');
+    if (!(await sidebar.evaluate((el) => el.classList.contains('grdc-panel-open')))) {
+      await page.keyboard.press('t');
+    }
+    const panel = page.locator('.grdc-panel');
+    await expect(panel).toBeVisible();
+    const docked = await panel.boundingBox();
+    expect(docked.x).toBe(0);
+    const pushed = await page.evaluate(() => parseFloat(getComputedStyle(document.body).paddingLeft));
+    expect(pushed).toBeGreaterThanOrEqual(docked.width - 2);
+
+    await page.locator('.grdc-panel-dock').click();
+    await expect(sidebar).toHaveClass(/grdc-sidebar-floating/);
+    const floatingPad = await page.evaluate(() => parseFloat(getComputedStyle(document.body).paddingLeft));
+    expect(floatingPad).toBeLessThan(docked.width);
+    await expect(panel).toBeVisible();
   });
 
   test('pressing `3` switches the sidebar to the Outline tab', async ({ page }) => {

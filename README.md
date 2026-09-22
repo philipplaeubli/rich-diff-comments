@@ -11,6 +11,12 @@ This fork runs the GitHub extension in Firefox 140 or later and adds comments on
 
 The extension finds the exact source line (or line range) of the selection, also in hard-wrapped paragraphs. The comment starts with the selection as a `> quote`, so every GitHub client shows what the comment is about. On reload, the extension highlights the quoted words in the rendered text. Clear the **Quote** checkbox to post without the quote. **Suggest change** inserts a GitHub `suggestion` block with the raw source lines.
 
+## Layout
+
+The extension puts a thin bar across the top of the window, and the page moves down by the same height, so the bar never covers the diff. The tabs sit at the left of the bar: click one to open the panel on that tab, click it again to close it, or press `t`. The panel docks to the left of the content and pushes it aside; the button in the panel header lets it float above the content instead, where you can drag and resize it. `Shift+T` resets the panel to the docked default.
+
+On a pull request's changed-files page, every changed Markdown file is rendered as rich diff automatically, because every feature here needs the rendered view. The round button in the top bar switches this off, and the choice is remembered in your browser.
+
 ## OpenSpec outline
 
 When a PR changes files under `openspec/`, the sidebar gets a Spec tab (shortcut `4`). It shows each change as an outline: the proposal sections, each capability with its ADDED, MODIFIED, REMOVED, and RENAMED requirements and their scenarios, and the tasks with progress. It also shows thread counts, and a warning for each requirement without a scenario or without SHALL or MUST. The outline reads the raw files, so it works before you render any file. Click a row to jump to the rendered block, or to the source-diff line if the file is not in rich diff.

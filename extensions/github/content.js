@@ -3322,24 +3322,94 @@
   // position / size / collapsed state, drop inline styles, and rebuild so
   // the user can recover from an offscreen drag or unwanted collapse
   // without DevTools. Bound to `Shift+T`.
+  // ── Layout: fixed top bar + a panel that docks left or floats ────────────
+  const PANEL_OPEN_KEY = 'grdc_panel_open';
+  const PANEL_MODE_KEY = 'grdc_panel_mode';     // 'docked' | 'floating'
+  const AUTORENDER_KEY = 'grdc_autorender';
+
+  function panelMode() {
+    try { return localStorage.getItem(PANEL_MODE_KEY) === 'floating' ? 'floating' : 'docked'; } catch (_) { return 'docked'; }
+  }
+
+  function panelIsOpen() {
+    try { return localStorage.getItem(PANEL_OPEN_KEY) === '1'; } catch (_) { return false; }
+  }
+
+  function autoRenderEnabled() {
+    try { return localStorage.getItem(AUTORENDER_KEY) !== '0'; } catch (_) { return true; }
+  }
+
+  // Reflect panel state on the sidebar and on <html>, so the page content
+  // is pushed down / aside instead of being covered.
+  function applyLayout() {
+    const sidebar = document.querySelector('.grdc-sidebar');
+    const root = document.documentElement;
+    if (!sidebar) {
+      root.classList.remove('grdc-topbar-on', 'grdc-panel-docked');
+      return;
+    }
+    const open = panelIsOpen();
+    const floating = panelMode() === 'floating';
+    sidebar.classList.toggle('grdc-panel-open', open);
+    sidebar.classList.toggle('grdc-sidebar-floating', floating);
+    root.classList.add('grdc-topbar-on');
+    root.classList.toggle('grdc-panel-docked', open && !floating);
+    const panel = sidebar.querySelector('.grdc-panel');
+    if (panel) {
+      if (floating) {
+        applySidebarPersistedPos(panel);
+      } else {
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.width = '';
+        panel.style.height = '';
+        panel.style.transform = '';
+      }
+      const width = floating ? null : (parseFloat(panel.style.width) || 0);
+      if (width) root.style.setProperty('--grdc-panel-w', `${width}px`);
+    }
+    const dockBtn = sidebar.querySelector('.grdc-panel-dock');
+    if (dockBtn) {
+      dockBtn.setAttribute('aria-pressed', floating ? 'false' : 'true');
+      dockBtn.title = floating ? 'Dock the panel beside the content' : 'Let the panel float above the content';
+    }
+    const autoBtn = sidebar.querySelector('.grdc-sidebar-autorender');
+    if (autoBtn) autoBtn.setAttribute('aria-pressed', autoRenderEnabled() ? 'true' : 'false');
+    const title = sidebar.querySelector('.grdc-panel-title');
+    const activeTab = sidebar.querySelector('.grdc-sidebar-tab-active');
+    if (title && activeTab) title.textContent = activeTab.textContent.trim();
+    sidebar.querySelectorAll('.grdc-sidebar-tab').forEach(t => {
+      t.setAttribute('aria-expanded', open && t.classList.contains('grdc-sidebar-tab-active') ? 'true' : 'false');
+    });
+  }
+
+  function setPanelOpen(open) {
+    try { localStorage.setItem(PANEL_OPEN_KEY, open ? '1' : '0'); } catch (_) {}
+    applyLayout();
+  }
+
+  function setPanelMode(mode) {
+    try { localStorage.setItem(PANEL_MODE_KEY, mode); } catch (_) {}
+    applyLayout();
+  }
+
   function resetSidebarLayout() {
     try {
       localStorage.removeItem(SIDEBAR_POS_KEY);
       localStorage.removeItem(SIDEBAR_SIZE_KEY);
       localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
     } catch (_) {}
-    const sidebar = document.querySelector('.grdc-sidebar');
-    if (sidebar) {
-      sidebar.style.left = '';
-      sidebar.style.top = '';
-      sidebar.style.right = '';
-      sidebar.style.width = '';
-      sidebar.style.height = '';
-      // Clear inline transform so the CSS default (translateX(-50%) for
-      // horizontal centering on the title row) takes over again.
-      sidebar.style.transform = '';
-      sidebar.classList.remove('grdc-sidebar-collapsed');
+    try { localStorage.removeItem(PANEL_MODE_KEY); } catch (_) {}
+    const panel = document.querySelector('.grdc-panel');
+    if (panel) {
+      panel.style.left = '';
+      panel.style.top = '';
+      panel.style.width = '';
+      panel.style.height = '';
+      panel.style.transform = '';
     }
+    document.documentElement.style.removeProperty('--grdc-panel-w');
+    applyLayout();
     try { buildThreadsSidebar(); } catch (_) {}
   }
 
@@ -3348,10 +3418,8 @@
   // the `t` shortcut so users can hide / reveal it without hunting for
   // the small collapse button.
   function toggleSidebarCollapsed() {
-    const sidebar = document.querySelector('.grdc-sidebar');
-    if (!sidebar) return;
-    const isCollapsed = sidebar.classList.toggle('grdc-sidebar-collapsed');
-    try { localStorage.setItem(SIDEBAR_COLLAPSE_KEY, isCollapsed ? '1' : '0'); } catch (_) {}
+    if (!document.querySelector('.grdc-sidebar')) return;
+    setPanelOpen(!panelIsOpen());
   }
 
   // Persist resize: watch for size changes via ResizeObserver and write to
@@ -3509,6 +3577,9 @@
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75Zm0 5a.75.75 0 0 1 .75-.75h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1-.75-.75Z"/></svg>
           </button>
           <span class="grdc-sidebar-separator" aria-hidden="true"></span>
+          <button class="grdc-sidebar-autorender" title="Render Markdown files automatically on this page" aria-label="Auto-render Markdown" aria-pressed="true">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0a.75.75 0 0 1 .75.75v1.54a5.75 5.75 0 0 1 4.96 4.96h1.54a.75.75 0 0 1 0 1.5h-1.54a5.75 5.75 0 0 1-4.96 4.96v1.54a.75.75 0 0 1-1.5 0v-1.54a5.75 5.75 0 0 1-4.96-4.96H.75a.75.75 0 0 1 0-1.5h1.54a5.75 5.75 0 0 1 4.96-4.96V.75A.75.75 0 0 1 8 0Zm0 3.75A4.25 4.25 0 1 0 8 12.25 4.25 4.25 0 0 0 8 3.75Zm0 2.5a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 0 1 0-3.5Z"/></svg>
+          </button>
           <button class="grdc-sidebar-render-md" title="Show Outline — also renders Markdown files (b)" aria-label="Show Outline">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.744 3.744 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>
           </button>
@@ -3581,6 +3652,16 @@
           <button class="grdc-sidebar-tab" data-grdc-tab="outline" role="tab" aria-selected="false" title="Outline (3)">Outline</button>
           <button class="grdc-sidebar-tab" data-grdc-tab="spec" role="tab" aria-selected="false" title="OpenSpec change (4)" hidden>Spec</button>
         </div>
+        <div class="grdc-panel">
+          <div class="grdc-panel-grip">
+            <span class="grdc-panel-title"></span>
+            <button class="grdc-panel-dock" type="button" title="Dock beside the content / let it float above" aria-label="Dock or float the panel">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M1.75 2h12.5c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 14H1.75A1.75 1.75 0 0 1 0 12.25v-8.5C0 2.784.784 2 1.75 2Zm0 1.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25H5v-9H1.75Zm4.75 0v9h7.75a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25H6.5Z"/></svg>
+            </button>
+            <button class="grdc-panel-close" type="button" title="Close the panel (t)" aria-label="Close the panel">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
+            </button>
+          </div>
         <div class="grdc-sidebar-pane grdc-sidebar-pane-threads" data-grdc-pane="threads">
           <label class="grdc-sidebar-filter">
             <input type="checkbox" class="grdc-sidebar-filter-cb">
@@ -3603,17 +3684,27 @@
         <div class="grdc-sidebar-pane grdc-sidebar-pane-spec" data-grdc-pane="spec" hidden>
           <div class="grdc-spec-tree"></div>
         </div>
+        </div>
       `;
       document.body.appendChild(sidebar);
 
-      const headerEl = sidebar.querySelector('.grdc-sidebar-header');
-      attachSidebarDrag(sidebar, headerEl);
-      applySidebarPersistedPos(sidebar);
-      observeSidebarResize(sidebar);
+      // The top bar is fixed; only the panel moves, and only when floating.
+      const panelEl = sidebar.querySelector('.grdc-panel');
+      attachSidebarDrag(panelEl, panelEl.querySelector('.grdc-panel-grip'));
+      observeSidebarResize(panelEl);
 
       sidebar.querySelector('.grdc-sidebar-collapse').addEventListener('click', () => {
-        const isCollapsed = sidebar.classList.toggle('grdc-sidebar-collapsed');
-        try { localStorage.setItem(SIDEBAR_COLLAPSE_KEY, isCollapsed ? '1' : '0'); } catch (_) {}
+        setPanelOpen(!panelIsOpen());
+      });
+      panelEl.querySelector('.grdc-panel-close').addEventListener('click', () => setPanelOpen(false));
+      panelEl.querySelector('.grdc-panel-dock').addEventListener('click', () => {
+        setPanelMode(panelMode() === 'floating' ? 'docked' : 'floating');
+      });
+      sidebar.querySelector('.grdc-sidebar-autorender').addEventListener('click', () => {
+        const next = !autoRenderEnabled();
+        try { localStorage.setItem(AUTORENDER_KEY, next ? '1' : '0'); } catch (_) {}
+        applyLayout();
+        if (next) expandAndRenderAllMd(sidebar);
       });
       sidebar.querySelector('.grdc-sidebar-prev').addEventListener('click', () => sidebarJump(-1));
       sidebar.querySelector('.grdc-sidebar-next').addEventListener('click', () => sidebarJump(+1));
@@ -3682,7 +3773,9 @@
       sidebar.querySelectorAll('.grdc-sidebar-tab').forEach(tab => {
         tab.addEventListener('click', () => {
           const target = tab.dataset.grdcTab;
+          const wasActive = tab.classList.contains('grdc-sidebar-tab-active');
           setSidebarTab(sidebar, target);
+          setPanelOpen(!(wasActive && panelIsOpen()));
         });
       });
 
@@ -3701,7 +3794,7 @@
     }
 
     // Apply persisted state.
-    sidebar.classList.toggle('grdc-sidebar-collapsed', collapsed);
+    applyLayout();
     const filterCb = sidebar.querySelector('.grdc-sidebar-filter-cb');
     if (filterCb.checked !== unresolvedOnly) filterCb.checked = unresolvedOnly;
     const headerFilter = sidebar.querySelector('.grdc-sidebar-header-filter');
@@ -4191,6 +4284,9 @@
       p.hidden = p.dataset.grdcPane !== target;
     });
     try { localStorage.setItem(SIDEBAR_TAB_KEY, target); } catch (_) {}
+    const title = sidebar.querySelector('.grdc-panel-title');
+    const activeTab = sidebar.querySelector('.grdc-sidebar-tab-active');
+    if (title && activeTab) title.textContent = activeTab.textContent.trim();
   }
 
   function foldOutlineAtLevel(level) {
@@ -5454,10 +5550,7 @@
       const sidebar = document.querySelector('.grdc-sidebar');
       if (!sidebar) return;
       e.preventDefault();
-      if (sidebar.classList.contains('grdc-sidebar-collapsed')) {
-        sidebar.classList.remove('grdc-sidebar-collapsed');
-        try { localStorage.setItem(SIDEBAR_COLLAPSE_KEY, '0'); } catch (_) {}
-      }
+      setPanelOpen(true);
       const target = e.key === '1' ? 'changes'
         : e.key === '2' ? 'threads'
         : e.key === '3' ? 'outline'
@@ -5659,6 +5752,8 @@
     }, 50);
   });
 
+  let autoRenderedPath = null;
+
   async function init() {
     prInfo = parsePRUrl();
     if (!prInfo) return;
@@ -5681,6 +5776,20 @@
 
     // Fetch route data first (builds pathDigest map + caches for comments)
     await fetchRouteData();
+
+    // Render the changed Markdown files without being asked. Reviewers open
+    // /files or /changes to read the prose, and every feature here needs the
+    // rendered view. Once per page load, and only while the top-bar toggle
+    // is on.
+    if (autoRenderEnabled() && autoRenderedPath !== window.location.pathname) {
+      autoRenderedPath = window.location.pathname;
+      try {
+        const flipped = await flipAllMdToRichDiff();
+        if (flipped) await fetchRouteData();
+      } catch (e) {
+        console.log('[GRDC] Auto-render failed:', e.message);
+      }
+    }
 
     // Kick off `fetchExistingComments()` in parallel with `buildLineMap()`.
     // Both only need `routeData` (already cached above): `fetchExistingComments`

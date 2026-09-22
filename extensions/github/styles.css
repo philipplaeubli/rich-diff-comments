@@ -2010,3 +2010,190 @@ li.grdc-hoverable .grdc-comment-btn {
 .grdc-glossary-pop-foot a {
   color: var(--fgColor-accent, #0969da);
 }
+
+/* ── Layout v2: fixed top bar + a panel that docks left or floats ──────
+   The sidebar is no longer a window over the diff. The chrome is a bar
+   across the top of the window, and the page is pushed down by the same
+   height, so nothing is covered. The tabs sit at the left of the bar and
+   open the panel, which docks to the left of the content (pushing it
+   aside) or floats above it. */
+
+:root {
+  --grdc-topbar-h: 40px;
+  --grdc-panel-w: 340px;
+}
+
+html.grdc-topbar-on body {
+  padding-top: var(--grdc-topbar-h) !important;
+}
+
+html.grdc-panel-docked body {
+  padding-left: var(--grdc-panel-w) !important;
+}
+
+.grdc-sidebar {
+  top: 0 !important;
+  left: 0 !important;
+  right: 0;
+  width: auto !important;
+  min-width: 0 !important;
+  height: var(--grdc-topbar-h) !important;
+  min-height: 0 !important;
+  max-height: none;
+  transform: none !important;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  resize: none;
+  overflow: visible;
+  z-index: 900;
+}
+
+/* Tabs first: the outline and the other panes open from the top left. */
+.grdc-sidebar-tabs {
+  order: -1;
+  flex: 0 0 auto;
+  align-items: stretch;
+  background: transparent;
+  border-bottom: none;
+  border-right: 1px solid var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+}
+
+.grdc-sidebar-tab {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border-bottom: none;
+  border-top: 2px solid transparent;
+}
+
+.grdc-sidebar-tab-active {
+  background: var(--bgColor-default, var(--color-canvas-default, #ffffff));
+  border-top-color: var(--bgColor-accent-emphasis, var(--color-accent-emphasis, #0969da));
+  border-bottom-color: transparent;
+}
+
+/* A quiet bar, not a blue banner: it is always on screen now, so it
+   must not shout over the diff. Buttons inherit the page text color. */
+.grdc-sidebar,
+.grdc-sidebar-header {
+  background: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+}
+
+.grdc-sidebar-header {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border-bottom: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  cursor: default;
+}
+
+.grdc-sidebar-header button,
+.grdc-sidebar-count,
+.grdc-sidebar-header-filter {
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-sidebar-header button:hover,
+.grdc-sidebar-header-filter:hover {
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  background: var(--bgColor-neutral-muted, var(--color-neutral-muted, rgba(175, 184, 193, 0.2)));
+}
+
+.grdc-sidebar-header-filter[aria-pressed="true"] {
+  color: var(--fgColor-accent, #0969da);
+}
+
+.grdc-sidebar-separator {
+  background: var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+}
+
+.grdc-sidebar-autorender[aria-pressed="false"] {
+  opacity: 0.45;
+}
+
+/* The panel itself. Docked by default: a column left of the content. */
+.grdc-panel {
+  position: fixed;
+  top: var(--grdc-topbar-h);
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--grdc-panel-w);
+  min-width: 260px;
+  background: var(--bgColor-default, var(--color-canvas-default, #ffffff));
+  border-right: 1px solid var(--borderColor-default, var(--color-border-default, #d0d7de));
+  font-size: 12px;
+  z-index: 899;
+  overflow: hidden;
+}
+
+.grdc-sidebar:not(.grdc-panel-open) .grdc-panel {
+  display: none;
+}
+
+/* Floating: the same panel, lifted above the content and movable. */
+.grdc-sidebar-floating .grdc-panel {
+  top: calc(var(--grdc-topbar-h) + 16px);
+  left: 16px;
+  bottom: auto;
+  height: 70vh;
+  min-height: 160px;
+  width: 420px;
+  border: 1px solid var(--borderColor-default, var(--color-border-default, #d0d7de));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  resize: both;
+}
+
+.grdc-panel-grip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  background: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+  border-bottom: 1px solid var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+}
+
+.grdc-sidebar-floating .grdc-panel-grip {
+  cursor: grab;
+}
+
+.grdc-panel-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grdc-panel-grip button {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.grdc-panel-grip button:hover {
+  background: var(--bgColor-neutral-muted, var(--color-neutral-muted, rgba(175, 184, 193, 0.2)));
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+}
+
+.grdc-panel-dock[aria-pressed="true"] {
+  color: var(--fgColor-accent, #0969da);
+}
+
+.grdc-sidebar-pane {
+  overflow: auto;
+}
