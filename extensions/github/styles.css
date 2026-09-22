@@ -1816,6 +1816,16 @@ li.grdc-hoverable .grdc-comment-btn {
   content: "▾";
 }
 
+.grdc-spec-cap-section {
+  margin-top: 10px;
+}
+
+.grdc-spec-cap-section + .grdc-spec-cap-section {
+  margin-top: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+}
+
 .grdc-spec-cap-section > summary {
   padding-left: 18px;
   font-weight: 500;
@@ -1837,7 +1847,7 @@ li.grdc-hoverable .grdc-comment-btn {
 .grdc-spec-req > summary > .grdc-spec-row {
   flex: 1;
   min-width: 0;
-  padding-left: 0 !important;
+  padding-left: 8px !important;
 }
 
 .grdc-spec-row {
