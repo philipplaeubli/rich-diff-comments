@@ -2197,3 +2197,60 @@ html.grdc-panel-docked body {
 .grdc-sidebar-pane {
   overflow: auto;
 }
+
+/* ── Top bar v3: only the tabs and the spec-outline arrows ────────────
+   Everything else moved into the panel or stayed as a keyboard shortcut.
+   The bar is on screen all the time, so it holds the two controls a
+   reviewer uses while reading, and nothing else. */
+
+.grdc-sidebar-header > .grdc-sidebar-collapse,
+.grdc-sidebar-header > .grdc-sidebar-render-md,
+.grdc-sidebar-header > .grdc-sidebar-autorender,
+.grdc-sidebar-header > .grdc-sidebar-header-filter,
+.grdc-sidebar-header > .grdc-sidebar-changes-nav,
+.grdc-sidebar-header > .grdc-sidebar-nav,
+.grdc-sidebar-header > .grdc-sidebar-separator {
+  display: none;
+}
+
+.grdc-specnav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.grdc-specnav button {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.grdc-specnav button:hover:not(:disabled) {
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  background: var(--bgColor-neutral-muted, var(--color-neutral-muted, rgba(175, 184, 193, 0.2)));
+}
+
+.grdc-specnav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.grdc-specnav-count {
+  min-width: 44px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-spec-row-current {
+  background: var(--bgColor-accent-muted, var(--color-accent-subtle, rgba(9, 105, 218, 0.1)));
+}
+
+.grdc-panel-autorender[aria-pressed="false"] {
+  opacity: 0.4;
+}

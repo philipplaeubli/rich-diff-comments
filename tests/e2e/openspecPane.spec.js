@@ -69,6 +69,22 @@ test.describe('OpenSpec pane', () => {
     await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(`#diff-${digest}R18`);
   });
 
+  test('the bar arrows walk the requirements of the spec outline', async ({ page }) => {
+    await setup(page, OPENSPEC_FILES);
+    const count = page.locator('.grdc-specnav-count');
+    // Every row of the outline except the scenarios: proposal sections,
+    // delta groups, requirements, task groups and tasks.
+    await expect(count).toHaveText('1/21');
+    // The first click lands on the first row, the next one moves on.
+    await page.locator('.grdc-specnav-next').click();
+    await expect(count).toHaveText('1/21');
+    await page.locator('.grdc-specnav-next').click();
+    await expect(count).toHaveText('2/21');
+    await page.locator('.grdc-specnav-prev').click();
+    await page.locator('.grdc-specnav-prev').click();
+    await expect(count).toHaveText('21/21');
+  });
+
   test('the Spec tab stays hidden on a PR without OpenSpec files', async ({ page }) => {
     await setup(page, {});
     await expect(page.locator('.grdc-sidebar-tab[data-grdc-tab="spec"]')).toBeHidden();

@@ -3332,7 +3332,8 @@
   }
 
   function panelIsOpen() {
-    try { return localStorage.getItem(PANEL_OPEN_KEY) === '1'; } catch (_) { return false; }
+    // Open by default: the outline is the reason most reviewers are here.
+    try { return localStorage.getItem(PANEL_OPEN_KEY) !== '0'; } catch (_) { return true; }
   }
 
   function autoRenderEnabled() {
@@ -3373,7 +3374,7 @@
       dockBtn.setAttribute('aria-pressed', floating ? 'false' : 'true');
       dockBtn.title = floating ? 'Dock the panel beside the content' : 'Let the panel float above the content';
     }
-    const autoBtn = sidebar.querySelector('.grdc-sidebar-autorender');
+    const autoBtn = sidebar.querySelector('.grdc-panel-autorender');
     if (autoBtn) autoBtn.setAttribute('aria-pressed', autoRenderEnabled() ? 'true' : 'false');
     const title = sidebar.querySelector('.grdc-panel-title');
     const activeTab = sidebar.querySelector('.grdc-sidebar-tab-active');
@@ -3576,6 +3577,15 @@
           <button class="grdc-sidebar-collapse" title="Collapse / expand sidebar (t) — Shift+T to reset position" aria-label="Toggle sidebar">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75Zm0 5a.75.75 0 0 1 .75-.75h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1-.75-.75Z"/></svg>
           </button>
+          <span class="grdc-specnav">
+            <button class="grdc-specnav-prev" type="button" title="Previous requirement in the spec outline" aria-label="Previous outline item">
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 1.06L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06Z"/></svg>
+            </button>
+            <span class="grdc-specnav-count" aria-live="polite">0/0</span>
+            <button class="grdc-specnav-next" type="button" title="Next requirement in the spec outline" aria-label="Next outline item">
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>
+            </button>
+          </span>
           <span class="grdc-sidebar-separator" aria-hidden="true"></span>
           <button class="grdc-sidebar-autorender" title="Render Markdown files automatically on this page" aria-label="Auto-render Markdown" aria-pressed="true">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0a.75.75 0 0 1 .75.75v1.54a5.75 5.75 0 0 1 4.96 4.96h1.54a.75.75 0 0 1 0 1.5h-1.54a5.75 5.75 0 0 1-4.96 4.96v1.54a.75.75 0 0 1-1.5 0v-1.54a5.75 5.75 0 0 1-4.96-4.96H.75a.75.75 0 0 1 0-1.5h1.54a5.75 5.75 0 0 1 4.96-4.96V.75A.75.75 0 0 1 8 0Zm0 3.75A4.25 4.25 0 1 0 8 12.25 4.25 4.25 0 0 0 8 3.75Zm0 2.5a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 0 1 0-3.5Z"/></svg>
@@ -3647,14 +3657,17 @@
           </button>
         </div>
         <div class="grdc-sidebar-tabs" role="tablist">
-          <button class="grdc-sidebar-tab grdc-sidebar-tab-active" data-grdc-tab="changes" role="tab" aria-selected="true" title="Changes (1)">Changes</button>
-          <button class="grdc-sidebar-tab" data-grdc-tab="threads" role="tab" aria-selected="false" title="Threads (2)">Threads</button>
-          <button class="grdc-sidebar-tab" data-grdc-tab="outline" role="tab" aria-selected="false" title="Outline (3)">Outline</button>
           <button class="grdc-sidebar-tab" data-grdc-tab="spec" role="tab" aria-selected="false" title="OpenSpec change (4)" hidden>Spec</button>
+          <button class="grdc-sidebar-tab" data-grdc-tab="changes" role="tab" aria-selected="false" title="Changes (1)">Changes</button>
+          <button class="grdc-sidebar-tab" data-grdc-tab="threads" role="tab" aria-selected="false" title="Threads (2)">Threads</button>
+          <button class="grdc-sidebar-tab grdc-sidebar-tab-active" data-grdc-tab="outline" role="tab" aria-selected="true" title="Outline (3)">Outline</button>
         </div>
         <div class="grdc-panel">
           <div class="grdc-panel-grip">
             <span class="grdc-panel-title"></span>
+            <button class="grdc-panel-autorender" type="button" title="Render Markdown files automatically on this page" aria-label="Auto-render Markdown" aria-pressed="true">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 0a.75.75 0 0 1 .75.75v1.54a5.75 5.75 0 0 1 4.96 4.96h1.54a.75.75 0 0 1 0 1.5h-1.54a5.75 5.75 0 0 1-4.96 4.96v1.54a.75.75 0 0 1-1.5 0v-1.54a5.75 5.75 0 0 1-4.96-4.96H.75a.75.75 0 0 1 0-1.5h1.54a5.75 5.75 0 0 1 4.96-4.96V.75A.75.75 0 0 1 8 0Zm0 3.75A4.25 4.25 0 1 0 8 12.25 4.25 4.25 0 0 0 8 3.75Zm0 2.5a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 0 1 0-3.5Z"/></svg>
+            </button>
             <button class="grdc-panel-dock" type="button" title="Dock beside the content / let it float above" aria-label="Dock or float the panel">
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M1.75 2h12.5c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 14H1.75A1.75 1.75 0 0 1 0 12.25v-8.5C0 2.784.784 2 1.75 2Zm0 1.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25H5v-9H1.75Zm4.75 0v9h7.75a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25H6.5Z"/></svg>
             </button>
@@ -3700,12 +3713,14 @@
       panelEl.querySelector('.grdc-panel-dock').addEventListener('click', () => {
         setPanelMode(panelMode() === 'floating' ? 'docked' : 'floating');
       });
-      sidebar.querySelector('.grdc-sidebar-autorender').addEventListener('click', () => {
+      panelEl.querySelector('.grdc-panel-autorender').addEventListener('click', () => {
         const next = !autoRenderEnabled();
         try { localStorage.setItem(AUTORENDER_KEY, next ? '1' : '0'); } catch (_) {}
         applyLayout();
         if (next) expandAndRenderAllMd(sidebar);
       });
+      sidebar.querySelector('.grdc-specnav-prev').addEventListener('click', () => specNavJump(-1));
+      sidebar.querySelector('.grdc-specnav-next').addEventListener('click', () => specNavJump(+1));
       sidebar.querySelector('.grdc-sidebar-prev').addEventListener('click', () => sidebarJump(-1));
       sidebar.querySelector('.grdc-sidebar-next').addEventListener('click', () => sidebarJump(+1));
       // Changes-nav (◀ / ▶) — mirrors thread-nav but walks the
@@ -3909,14 +3924,15 @@
     // OpenSpec pane: only shown when the PR touches `openspec/` files.
     // Async (fetches raw sources of files that are not rendered yet); it
     // re-renders itself when the sources arrive.
-    buildSpecPane(sidebar);
+    buildSpecPane(sidebar).then(updateSpecNav).catch(() => {});
+    updateSpecNav();
 
     // Pick the active tab. Normally we honor the user's last choice;
     // when threads is empty but Outline isn't, force-switch to Outline
     // so the empty Threads list doesn't look like "the sidebar is
     // broken". Doesn't persist — once threads are back, the user's
     // saved preference resumes.
-    const savedTab = localStorage.getItem(SIDEBAR_TAB_KEY) || 'changes';
+    const savedTab = localStorage.getItem(SIDEBAR_TAB_KEY) || 'outline';
     setSidebarTab(sidebar, forceOutlineTab ? 'outline' : savedTab);
   }
 
@@ -4261,6 +4277,39 @@
     // listener. Reuses the `outlineActiveObserver` slot for symmetry
     // with the disconnect flow above.
     outlineActiveObserver = () => window.removeEventListener('scroll', onScroll);
+  }
+
+  // The bar's arrows walk the spec outline: every requirement (and group
+  // heading) of the Spec tab, in document order. Without an OpenSpec change
+  // on the page they fall back to the document outline, so the arrows are
+  // never dead.
+  let specNavIdx = -1;
+
+  function specNavTargets() {
+    const spec = document.querySelectorAll('.grdc-spec-tree .grdc-spec-row:not(.grdc-spec-scenario):not(.grdc-spec-purpose)');
+    if (spec.length) return Array.from(spec);
+    return Array.from(document.querySelectorAll('.grdc-sidebar-outline-tree .grdc-sidebar-outline-row'));
+  }
+
+  function updateSpecNav() {
+    const sidebar = document.querySelector('.grdc-sidebar');
+    if (!sidebar) return;
+    const targets = specNavTargets();
+    if (specNavIdx >= targets.length) specNavIdx = targets.length - 1;
+    const countEl = sidebar.querySelector('.grdc-specnav-count');
+    if (countEl) countEl.textContent = `${targets.length ? Math.max(specNavIdx, 0) + 1 : 0}/${targets.length}`;
+    sidebar.querySelectorAll('.grdc-specnav button').forEach(b => { b.disabled = targets.length === 0; });
+  }
+
+  function specNavJump(delta) {
+    const targets = specNavTargets();
+    if (targets.length === 0) return;
+    specNavIdx = nextWrappingIndex(specNavIdx, delta, targets.length);
+    const el = targets[specNavIdx];
+    el.click();
+    el.classList.add('grdc-spec-row-current');
+    setTimeout(() => el.classList.remove('grdc-spec-row-current'), 1500);
+    updateSpecNav();
   }
 
   function setSidebarTab(sidebar, target) {
@@ -5754,6 +5803,17 @@
 
   let autoRenderedPath = null;
 
+  // Scroll to the OpenSpec proposal of this PR, if it has one.
+  function jumpToProposal() {
+    let proposal = null;
+    pathDigestMap.forEach((p) => {
+      if (!proposal && /(^|\/)openspec\/changes\/[^/]+\/proposal\.md$/.test(p)) proposal = p;
+    });
+    if (!proposal) return;
+    console.log(`[GRDC] Jumping to the proposal: ${proposal}`);
+    jumpToSourceLine(proposal, 1);
+  }
+
   async function init() {
     prInfo = parsePRUrl();
     if (!prInfo) return;
@@ -5781,11 +5841,13 @@
     // /files or /changes to read the prose, and every feature here needs the
     // rendered view. Once per page load, and only while the top-bar toggle
     // is on.
+    let justRendered = false;
     if (autoRenderEnabled() && autoRenderedPath !== window.location.pathname) {
       autoRenderedPath = window.location.pathname;
       try {
         const flipped = await flipAllMdToRichDiff();
         if (flipped) await fetchRouteData();
+        justRendered = true;
       } catch (e) {
         console.log('[GRDC] Auto-render failed:', e.message);
       }
@@ -5809,6 +5871,11 @@
     renderExistingComments();
     buildThreadsSidebar();
     applyGlossaryHighlights().catch((e) => console.log('[GRDC] Glossary failed:', e.message));
+
+    // After rendering, put the reader where the change starts: the
+    // proposal. Skipped when the URL already points somewhere (a link to a
+    // file or a thread) so we never fight the user's own destination.
+    if (justRendered && !window.location.hash) jumpToProposal();
 
     // If the page loaded with a heading hash (e.g. user clicked a TOC link
     // before our init finished), the browser's native scroll-to-anchor will

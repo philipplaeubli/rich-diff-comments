@@ -13,9 +13,9 @@ The extension finds the exact source line (or line range) of the selection, also
 
 ## Layout
 
-The extension puts a thin bar across the top of the window, and the page moves down by the same height, so the bar never covers the diff. The tabs sit at the left of the bar: click one to open the panel on that tab, click it again to close it, or press `t`. The panel docks to the left of the content and pushes it aside; the button in the panel header lets it float above the content instead, where you can drag and resize it. `Shift+T` resets the panel to the docked default.
+The extension puts a thin bar across the top of the window, and the page moves down by the same height, so the bar never covers the diff. The bar holds two things: the tabs (Spec, Changes, Threads, Outline) at the left, and a pair of arrows that step through the spec outline, requirement by requirement. Click a tab to open the panel on it, click it again to close it, or press `t`. The panel opens on the Outline by default, docks to the left of the content and pushes it aside; the button in the panel header lets it float above the content instead, where you can drag and resize it. `Shift+T` resets the panel to the docked default.
 
-On a pull request's changed-files page, every changed Markdown file is rendered as rich diff automatically, because every feature here needs the rendered view. The round button in the top bar switches this off, and the choice is remembered in your browser.
+On a pull request's changed-files page, every changed Markdown file is rendered as rich diff automatically, because every feature here needs the rendered view. When the PR has an OpenSpec proposal, the page then scrolls to it, unless the URL already points somewhere else. The round button in the panel header switches the automatic rendering off, and the choice is remembered in your browser.
 
 ## OpenSpec outline
 

@@ -55,10 +55,12 @@ test.describe('keyboard shortcuts', () => {
     // The page content starts below the bar instead of under it.
     const padding = await page.evaluate(() => parseFloat(getComputedStyle(document.body).paddingTop));
     expect(padding).toBeGreaterThanOrEqual(box.height - 2);
-    // Both nav clusters and the panel toggle stay reachable in the bar.
-    await expect(page.locator('.grdc-sidebar-nav')).toBeVisible();
-    await expect(page.locator('.grdc-sidebar-changes-nav')).toBeVisible();
-    await expect(page.locator('.grdc-sidebar-collapse')).toBeVisible();
+    // The bar holds the tabs and the spec-outline arrows, nothing else.
+    await expect(page.locator('.grdc-sidebar-tabs')).toBeVisible();
+    await expect(page.locator('.grdc-specnav-prev')).toBeVisible();
+    await expect(page.locator('.grdc-specnav-next')).toBeVisible();
+    await expect(page.locator('.grdc-sidebar-header > .grdc-sidebar-collapse')).toBeHidden();
+    await expect(page.locator('.grdc-sidebar-header > .grdc-sidebar-header-filter')).toBeHidden();
   });
 
   test('a docked panel pushes the content aside, floating does not', async ({ page }) => {
