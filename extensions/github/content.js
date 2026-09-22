@@ -51,6 +51,10 @@
     buildQuotedBody,
     extractLeadingQuote,
     findTextRange,
+    classifyOpenSpecPath,
+    buildOpenSpecOutline,
+    countThreadsInRange,
+    plainInline,
   } = (typeof window !== 'undefined' && window.GRDC) || {};
 
   // Firefox: a content script's global `fetch` runs with the extension's
@@ -1242,7 +1246,8 @@
     if (rawSourceCache.has(path)) return rawSourceCache.get(path);
 
     // Discover head commit SHA from route data or blob links
-    let headOid = routeData?.comparison?.fullDiff?.headOid;
+    let headOid = routeData?.comparison?.fullDiff?.headOid ||
+      routeData?.comparison?.headOid || prInfo?.headOid;
     if (!headOid) {
       const blobLink = container.querySelector('a[href*="/blob/"]');
       if (blobLink) {
@@ -3570,6 +3575,7 @@
           <button class="grdc-sidebar-tab grdc-sidebar-tab-active" data-grdc-tab="changes" role="tab" aria-selected="true" title="Changes (1)">Changes</button>
           <button class="grdc-sidebar-tab" data-grdc-tab="threads" role="tab" aria-selected="false" title="Threads (2)">Threads</button>
           <button class="grdc-sidebar-tab" data-grdc-tab="outline" role="tab" aria-selected="false" title="Outline (3)">Outline</button>
+          <button class="grdc-sidebar-tab" data-grdc-tab="spec" role="tab" aria-selected="false" title="OpenSpec change (4)" hidden>Spec</button>
         </div>
         <div class="grdc-sidebar-pane grdc-sidebar-pane-threads" data-grdc-pane="threads">
           <label class="grdc-sidebar-filter">
@@ -3589,6 +3595,9 @@
         </div>
         <div class="grdc-sidebar-pane grdc-sidebar-pane-changes" data-grdc-pane="changes" hidden>
           <div class="grdc-sidebar-changes-list" role="list"></div>
+        </div>
+        <div class="grdc-sidebar-pane grdc-sidebar-pane-spec" data-grdc-pane="spec" hidden>
+          <div class="grdc-spec-tree"></div>
         </div>
       `;
       document.body.appendChild(sidebar);
@@ -3799,6 +3808,11 @@
     // the header ◀ / ▶ counter — those buttons are present in the shell
     // but stay `hidden` until we have at least one change to navigate to.
     buildChangesPane(sidebar);
+
+    // OpenSpec pane: only shown when the PR touches `openspec/` files.
+    // Async (fetches raw sources of files that are not rendered yet); it
+    // re-renders itself when the sources arrive.
+    buildSpecPane(sidebar);
 
     // Pick the active tab. Normally we honor the user's last choice;
     // when threads is empty but Outline isn't, force-switch to Outline
@@ -4162,6 +4176,8 @@
     // zero diff blocks (the rare "empty PR" case, or before init finishes).
     const changesTab = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="changes"]');
     if (target === 'changes' && changesTab?.hidden) target = 'threads';
+    const specTab = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="spec"]');
+    if (target === 'spec' && specTab?.hidden) target = 'threads';
     sidebar.querySelectorAll('.grdc-sidebar-tab').forEach(t => {
       const isActive = t.dataset.grdcTab === target;
       t.classList.toggle('grdc-sidebar-tab-active', isActive);
@@ -4643,6 +4659,260 @@
   // Distinct from thread-nav (`j`/`k`): a brand-new PR with zero comments
   // still has changes to navigate — typically the first thing a reviewer
   // wants when opening a Markdown file for the first time.
+  // ── Sidebar: OpenSpec pane ───────────────────────────────────────────────────
+  //
+  // When a PR touches `openspec/` files, the Spec tab shows the change as a
+  // review outline: proposal sections, each capability's delta groups
+  // (ADDED / MODIFIED / REMOVED / RENAMED) with requirements and scenarios,
+  // validation warnings (no scenario, no SHALL/MUST), thread counts, and
+  // task progress. Parsing lives in src/lib/openspec.js. Sources come from
+  // the raw blobs, so the outline works before any file is rendered.
+  // Clicking a row jumps to the rendered block, or to the source-diff line
+  // when the file is not in rich diff.
+
+  let specBuildGeneration = 0;
+  const specClosedKeys = new Set();
+
+  function prOpenSpecPaths() {
+    const paths = new Set();
+    pathDigestMap.forEach((path) => {
+      if (classifyOpenSpecPath(path)) paths.add(path);
+    });
+    return Array.from(paths).sort();
+  }
+
+  async function buildSpecPane(sidebar) {
+    const tab = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="spec"]');
+    const treeEl = sidebar.querySelector('.grdc-spec-tree');
+    if (!tab || !treeEl) return;
+    const paths = prOpenSpecPaths();
+    if (paths.length === 0) {
+      tab.hidden = true;
+      if (localStorage.getItem(SIDEBAR_TAB_KEY) === 'spec') setSidebarTab(sidebar, 'threads');
+      return;
+    }
+    tab.hidden = false;
+    const gen = ++specBuildGeneration;
+
+    const render = () => {
+      if (gen !== specBuildGeneration) return;
+      const files = paths.map(path => ({
+        path,
+        source: path.endsWith('.md') || path.endsWith('.yaml') ? (rawSourceCache.get(path) ?? null) : null,
+      }));
+      renderSpecTree(treeEl, buildOpenSpecOutline(files));
+    };
+    render();
+
+    const missing = paths.filter(p => !rawSourceCache.has(p) && (p.endsWith('.md') || p.endsWith('.yaml')));
+    if (missing.length === 0) return;
+    await Promise.all(missing.map(p => fetchRawSource(document, p)));
+    render();
+  }
+
+  function specThreadHeads() {
+    const seen = new Set();
+    const heads = [];
+    for (const c of (existingComments || [])) {
+      if (seen.has(c.threadId)) continue;
+      seen.add(c.threadId);
+      heads.push({ path: c.path, line: c.line, startLine: c.startLine });
+    }
+    return heads;
+  }
+
+  function specEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text != null) el.textContent = text;
+    return el;
+  }
+
+  function specPill(text, kind, title) {
+    const pill = specEl('span', 'grdc-spec-pill' + (kind ? ` grdc-spec-pill-${kind}` : ''), text);
+    if (title) pill.title = title;
+    return pill;
+  }
+
+  // Collapsible section whose open state survives re-renders.
+  function specSection(key, summaryNodes, openByDefault) {
+    const d = document.createElement('details');
+    d.className = 'grdc-spec-section';
+    d.open = specClosedKeys.has(key) ? false : (openByDefault || specClosedKeys.has('open:' + key));
+    d.addEventListener('toggle', () => {
+      if (d.open) { specClosedKeys.delete(key); specClosedKeys.add('open:' + key); }
+      else { specClosedKeys.add(key); specClosedKeys.delete('open:' + key); }
+    });
+    const summary = document.createElement('summary');
+    summaryNodes.forEach(n => summary.appendChild(typeof n === 'string' ? document.createTextNode(n) : n));
+    d.appendChild(summary);
+    return d;
+  }
+
+  function specRow(label, path, line, opts) {
+    opts = opts || {};
+    const row = specEl('button', 'grdc-spec-row' + (opts.className ? ' ' + opts.className : ''));
+    row.type = 'button';
+    row.style.paddingLeft = `${22 + (opts.indent || 0) * 14}px`;
+    if (opts.glyph) row.appendChild(specEl('span', 'grdc-spec-glyph', opts.glyph));
+    row.appendChild(specEl('span', 'grdc-spec-row-label', label));
+    (opts.pills || []).forEach(p => row.appendChild(p));
+    row.title = `${opts.title ? opts.title + '\n' : ''}${path}:${line}`;
+    row.addEventListener('click', () => jumpToSourceLine(path, line));
+    return row;
+  }
+
+  function renderSpecTree(treeEl, changes) {
+    const heads = specThreadHeads();
+    treeEl.innerHTML = '';
+    for (const c of changes) {
+      const box = specEl('div', 'grdc-spec-change');
+      const head = specEl('div', 'grdc-spec-change-head');
+      head.appendChild(specEl('span', 'grdc-spec-change-name', c.change || 'Main specs'));
+      if (c.schema) head.appendChild(specPill(c.schema, 'schema', 'OpenSpec schema'));
+      box.appendChild(head);
+
+      const st = c.stats;
+      const bits = [
+        `${st.capabilities} capabilit${st.capabilities === 1 ? 'y' : 'ies'}`,
+        `${st.requirements} requirement${st.requirements === 1 ? '' : 's'}`,
+        `${st.scenarios} scenario${st.scenarios === 1 ? '' : 's'}`,
+      ];
+      if (st.tasksTotal) bits.push(`tasks ${st.tasksDone}/${st.tasksTotal}`);
+      box.appendChild(specEl('div', 'grdc-spec-stats', bits.join(' · ')));
+      if (st.warnings) {
+        box.appendChild(specEl('div', 'grdc-spec-warn-summary',
+          `⚠ ${st.warnings} validation warning${st.warnings === 1 ? '' : 's'} (see ⚠ rows)`));
+      }
+
+      const key = (k) => `${c.change}::${k}`;
+
+      // Proposal / design: section headings.
+      for (const kind of ['proposal', 'design']) {
+        const doc = c[kind];
+        if (!doc) continue;
+        const sec = specSection(key(kind), [kind === 'proposal' ? 'Proposal' : 'Design'], kind === 'proposal');
+        if (!doc.sections) sec.appendChild(specEl('div', 'grdc-spec-loading', 'Loading…'));
+        else {
+          for (const h of doc.sections.filter(h => h.level >= 2)) {
+            const end = (doc.sections.find(n => n.line > h.line && n.level <= h.level) || { line: Infinity }).line - 1;
+            const n = countThreadsInRange(heads, doc.path, h.line, end);
+            sec.appendChild(specRow(plainInline(h.title, 80), doc.path, h.line, {
+              indent: h.level - 2,
+              pills: n ? [specPill(`💬 ${n}`, 'threads', `${n} thread${n === 1 ? '' : 's'}`)] : [],
+            }));
+          }
+        }
+        box.appendChild(sec);
+      }
+
+      // Specs: capability → delta group → requirement → scenarios.
+      if (c.specs.length) {
+        const specsSec = specSection(key('specs'), ['Specs'], true);
+        for (const spec of c.specs) {
+          const summary = [specEl('span', 'grdc-spec-cap', spec.capability)];
+          if (spec.parsed) {
+            summary.push(specPill(`${spec.parsed.requirementCount} req`, null, 'Requirements'));
+            if (spec.warnings.length) summary.push(specPill(`⚠ ${spec.warnings.length}`, 'warn', spec.warnings.map(w => `${w.requirement || 'spec'}: ${w.message}`).join('\n')));
+          }
+          const capSec = specSection(key('spec:' + spec.path), summary, true);
+          capSec.classList.add('grdc-spec-cap-section');
+          if (!spec.parsed) capSec.appendChild(specEl('div', 'grdc-spec-loading', 'Loading…'));
+          else {
+            if (spec.parsed.purpose) {
+              capSec.appendChild(specRow(plainInline(spec.parsed.purpose.text || 'Purpose', 90), spec.path, spec.parsed.purpose.line, {
+                className: 'grdc-spec-purpose', title: 'Purpose',
+              }));
+            }
+            for (const g of spec.parsed.groups) {
+              const op = (g.op || 'REQ').toLowerCase();
+              capSec.appendChild(specRow(g.op ? `${g.op}` : 'Requirements', spec.path, g.line, {
+                className: 'grdc-spec-group',
+                pills: [specPill(String(g.requirements.length), `op-${op}`, `${g.requirements.length} requirement(s)`)],
+              }));
+              for (const r of g.requirements) {
+                const warns = spec.warnings.filter(w => w.line === r.line);
+                const n = countThreadsInRange(heads, spec.path, r.line, r.endLine);
+                const pills = [];
+                if (g.op !== 'REMOVED' && g.op !== 'RENAMED') pills.push(specPill(`${r.scenarios.length} sc`, null, `${r.scenarios.length} scenario(s)`));
+                if (n) pills.push(specPill(`💬 ${n}`, 'threads', `${n} thread${n === 1 ? '' : 's'}`));
+                if (warns.length) pills.push(specPill('⚠', 'warn', warns.map(w => w.message).join('\n')));
+                const reqSec = specSection(key('req:' + spec.path + ':' + r.line), [], false);
+                reqSec.classList.add('grdc-spec-req');
+                const summaryEl = reqSec.querySelector('summary');
+                summaryEl.appendChild(specRow(plainInline(r.name, 90), spec.path, r.line, {
+                  className: `grdc-spec-req-row grdc-spec-op-${op}`, pills,
+                }));
+                for (const sc of r.scenarios) {
+                  reqSec.appendChild(specRow(plainInline(sc.name, 90), spec.path, sc.line, { indent: 1, glyph: '▸', className: 'grdc-spec-scenario' }));
+                }
+                capSec.appendChild(reqSec);
+              }
+            }
+          }
+          specsSec.appendChild(capSec);
+        }
+        box.appendChild(specsSec);
+      }
+
+      // Tasks with progress.
+      if (c.tasks) {
+        const t = c.tasks.parsed;
+        const summary = ['Tasks'];
+        if (t) {
+          const bar = specEl('span', 'grdc-spec-progress');
+          const fill = specEl('span', 'grdc-spec-progress-fill');
+          fill.style.width = `${t.total ? Math.round((t.done / t.total) * 100) : 0}%`;
+          bar.appendChild(fill);
+          summary.push(bar, specPill(`${t.done}/${t.total}`, t.total && t.done === t.total ? 'done' : null));
+        }
+        const tasksSec = specSection(key('tasks'), summary, true);
+        if (!t) tasksSec.appendChild(specEl('div', 'grdc-spec-loading', 'Loading…'));
+        else {
+          for (const g of t.groups) {
+            const done = g.tasks.filter(x => x.done).length;
+            tasksSec.appendChild(specRow(plainInline(g.title, 80), c.tasks.path, g.line, {
+              className: 'grdc-spec-group',
+              pills: [specPill(`${done}/${g.tasks.length}`, done === g.tasks.length ? 'done' : null)],
+            }));
+            for (const task of g.tasks) {
+              const n = countThreadsInRange(heads, c.tasks.path, task.line, task.line);
+              tasksSec.appendChild(specRow(`${task.id ? task.id + ' ' : ''}${plainInline(task.text, 70)}`, c.tasks.path, task.line, {
+                indent: 1 + task.depth,
+                glyph: task.done ? '☑' : '☐',
+                className: task.done ? 'grdc-spec-task-done' : '',
+                title: plainInline(task.text, 400),
+                pills: n ? [specPill(`💬 ${n}`, 'threads')] : [],
+              }));
+            }
+          }
+        }
+        box.appendChild(tasksSec);
+      }
+      treeEl.appendChild(box);
+    }
+  }
+
+  // Jump to a source line: the rendered block when the file is in rich
+  // diff, else GitHub's own source-diff line anchor.
+  async function jumpToSourceLine(path, line) {
+    let best = null;
+    fileLineMap.forEach((info, el) => {
+      if (info.path !== path || !el.isConnected || info.line > line) return;
+      if (!best || info.line > best.info.line) best = { el, info };
+    });
+    if (best) {
+      scrollToWithStickyOffset(best.el);
+      best.el.classList.add('grdc-change-flash');
+      setTimeout(() => best.el.classList.remove('grdc-change-flash'), 1200);
+      return;
+    }
+    const digest = await sha256Hex(path);
+    const container = document.getElementById(`diff-${digest}`);
+    if (container) scrollToWithStickyOffset(container);
+    window.location.hash = `diff-${digest}R${line}`;
+  }
+
   function buildChangesPane(sidebar) {
     if (!sidebar || typeof findChangeBlocks !== 'function') return;
     const tab = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="changes"]');
@@ -4979,7 +5249,7 @@
     // PR doesn't silently swap the hidden tab behind a slim bar.
     // `setSidebarTab` already gracefully falls back to threads if the
     // requested tab is hidden (e.g. Changes when no rich-diff is rendered).
-    if (!e.shiftKey && (e.key === '1' || e.key === '2' || e.key === '3')) {
+    if (!e.shiftKey && (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4')) {
       const sidebar = document.querySelector('.grdc-sidebar');
       if (!sidebar) return;
       e.preventDefault();
@@ -4989,7 +5259,8 @@
       }
       const target = e.key === '1' ? 'changes'
         : e.key === '2' ? 'threads'
-        : 'outline';
+        : e.key === '3' ? 'outline'
+        : 'spec';
       setSidebarTab(sidebar, target);
       return;
     }

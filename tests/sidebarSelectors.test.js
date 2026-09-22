@@ -198,24 +198,17 @@ test('content.js: sidebar tab buttons render in Changes / Threads / Outline orde
   );
 });
 
-test('content.js: 1/2/3 keyboard shortcuts map to Changes / Threads / Outline', () => {
-  // Find the inline ternary in the document-level keydown handler that
-  // maps e.key to a tab name. The exact form lives in content.js as:
+test('content.js: 1/2/3/4 keyboard shortcuts map to Changes / Threads / Outline / Spec', () => {
+  // The inline ternary in the document-level keydown handler:
   //   const target = e.key === '1' ? 'changes'
   //     : e.key === '2' ? 'threads'
-  //     : 'outline';
-  // Tolerate whitespace variation but pin the mapping.
-  const mappingRe = /e\.key\s*===\s*['"]1['"]\s*\?\s*['"](\w+)['"]\s*:\s*e\.key\s*===\s*['"]2['"]\s*\?\s*['"](\w+)['"]\s*:\s*['"](\w+)['"]/;
+  //     : e.key === '3' ? 'outline'
+  //     : 'spec';
+  const k = (n) => `e\\.key\\s*===\\s*['"]${n}['"]\\s*\\?\\s*['"](\\w+)['"]\\s*:\\s*`;
+  const mappingRe = new RegExp(k(1) + k(2) + k(3) + `['"](\\w+)['"]`);
   const m = content.match(mappingRe);
-  assert.ok(
-    m,
-    `Could not find the 1/2/3 → tab mapping in content.js. ` +
-    `Expected a ternary like \`e.key === '1' ? 'changes' : e.key === '2' ? 'threads' : 'outline'\`. ` +
-    `If you refactored to a different shape, update this regex and confirm the mapping.`
-  );
-  assert.equal(m[1], 'changes', `Expected key '1' → 'changes' (1.5.0 reorder). Got '${m[1]}'.`);
-  assert.equal(m[2], 'threads', `Expected key '2' → 'threads' (1.5.0 reorder). Got '${m[2]}'.`);
-  assert.equal(m[3], 'outline', `Expected key '3' (fallthrough) → 'outline' (1.5.0 reorder). Got '${m[3]}'.`);
+  assert.ok(m, 'Could not find the 1/2/3/4 → tab mapping in content.js.');
+  assert.deepEqual(m.slice(1, 5), ['changes', 'threads', 'outline', 'spec']);
 });
 
 test('content.js: default sidebar tab is `changes` when no preference saved', () => {

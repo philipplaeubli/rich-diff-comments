@@ -11,6 +11,10 @@ This fork runs the GitHub extension in Firefox 140 or later and adds comments on
 
 The extension finds the exact source line (or line range) of the selection, also in hard-wrapped paragraphs. The comment starts with the selection as a `> quote`, so every GitHub client shows what the comment is about. On reload, the extension highlights the quoted words in the rendered text. Clear the **Quote** checkbox to post without the quote. **Suggest change** inserts a GitHub `suggestion` block with the raw source lines.
 
+## OpenSpec outline
+
+When a PR changes files under `openspec/`, the sidebar gets a Spec tab (shortcut `4`). It shows each change as an outline: the proposal sections, each capability with its ADDED, MODIFIED, REMOVED, and RENAMED requirements and their scenarios, and the tasks with progress. It also shows thread counts, and a warning for each requirement without a scenario or without SHALL or MUST. The outline reads the raw files, so it works before you render any file. Click a row to jump to the rendered block, or to the source-diff line if the file is not in rich diff.
+
 ## Install in Firefox
 
 Firefox release builds only install signed extensions. Pick one of these:

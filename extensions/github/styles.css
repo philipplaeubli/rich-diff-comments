@@ -1498,6 +1498,10 @@ li.grdc-hoverable .grdc-comment-btn {
 .grdc-sidebar-collapsed .grdc-sidebar-tabs,
 .grdc-sidebar-collapsed .grdc-sidebar-pane { display: none; }
 
+/* GitHub's global CSS hides `[hidden]` with !important. Do not depend on
+   it: panes and tabs set `display` themselves, which beats the UA rule. */
+.grdc-sidebar [hidden] { display: none !important; }
+
 /* ── Changes pane ─────────────────────────────────────────────────────
    The list pane that backs the Changes tab. Cards mirror the Threads
    cards (same overall shape, padding, hover) but each card has:
@@ -1749,4 +1753,190 @@ li.grdc-hoverable .grdc-comment-btn {
 
 ::highlight(grdc-pending) {
   background-color: rgba(9, 105, 218, 0.25);
+}
+
+/* ── Sidebar: OpenSpec pane ──────────────────────────────────────────── */
+
+.grdc-spec-tree {
+  padding: 4px 0 8px;
+  font-size: 12px;
+}
+
+.grdc-spec-change {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+}
+
+.grdc-spec-change-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+}
+
+.grdc-spec-change-name {
+  font-weight: 600;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.grdc-spec-stats,
+.grdc-spec-warn-summary,
+.grdc-spec-loading {
+  padding: 2px 10px 4px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-spec-warn-summary {
+  color: var(--fgColor-attention, #9a6700);
+}
+
+.grdc-spec-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.grdc-spec-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.grdc-spec-section > summary::before {
+  content: "▸";
+  width: 10px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-spec-section[open] > summary::before {
+  content: "▾";
+}
+
+.grdc-spec-cap-section > summary {
+  padding-left: 18px;
+  font-weight: 500;
+}
+
+.grdc-spec-cap {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Requirement rows: the summary holds the clickable row, the marker toggles scenarios. */
+.grdc-spec-req > summary {
+  padding: 0 0 0 26px;
+  font-weight: 400;
+}
+
+.grdc-spec-req > summary > .grdc-spec-row {
+  flex: 1;
+  min-width: 0;
+  padding-left: 0 !important;
+}
+
+.grdc-spec-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 10px 2px 8px;
+  font: inherit;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--fgColor-default, var(--color-fg-default, #24292f));
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.grdc-spec-row:hover {
+  background: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+}
+
+.grdc-spec-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grdc-spec-glyph {
+  flex: 0 0 auto;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-spec-group {
+  margin-top: 4px;
+  padding-left: 26px !important;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-spec-purpose {
+  padding-left: 26px !important;
+  font-style: italic;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-spec-scenario {
+  padding-left: 44px !important;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+}
+
+.grdc-spec-req-row {
+  border-left: 2px solid transparent;
+}
+
+.grdc-spec-op-added { border-left-color: var(--fgColor-success, #1a7f37); }
+.grdc-spec-op-modified { border-left-color: var(--fgColor-attention, #9a6700); }
+.grdc-spec-op-removed { border-left-color: var(--fgColor-danger, #d1242f); text-decoration: line-through; }
+.grdc-spec-op-renamed { border-left-color: var(--fgColor-accent, #0969da); }
+
+.grdc-spec-task-done .grdc-spec-row-label {
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+  text-decoration: line-through;
+}
+
+.grdc-spec-pill {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+  background: var(--bgColor-neutral-muted, var(--color-neutral-muted, rgba(175, 184, 193, 0.2)));
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.grdc-spec-pill-schema { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.grdc-spec-pill-threads { color: var(--fgColor-accent, #0969da); }
+.grdc-spec-pill-warn { color: var(--fgColor-attention, #9a6700); background: var(--bgColor-attention-muted, rgba(212, 167, 44, 0.2)); }
+.grdc-spec-pill-done { color: var(--fgColor-success, #1a7f37); background: var(--bgColor-success-muted, rgba(74, 194, 107, 0.2)); }
+.grdc-spec-pill-op-added { color: var(--fgColor-success, #1a7f37); }
+.grdc-spec-pill-op-modified { color: var(--fgColor-attention, #9a6700); }
+.grdc-spec-pill-op-removed { color: var(--fgColor-danger, #d1242f); }
+
+.grdc-spec-progress {
+  flex: 1;
+  max-width: 120px;
+  height: 6px;
+  overflow: hidden;
+  background: var(--bgColor-neutral-muted, var(--color-neutral-muted, rgba(175, 184, 193, 0.2)));
+  border-radius: 3px;
+}
+
+.grdc-spec-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--fgColor-success, #1a7f37);
 }
