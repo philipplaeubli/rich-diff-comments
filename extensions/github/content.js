@@ -5439,17 +5439,23 @@
       return;
     }
 
-    // Correct until the block really sits where we want it. A single
-    // scroll misses whenever the page is still growing: files render
-    // lazily and our own boxes change heights.
+    // One instant move, then silent corrections. Smooth scrolling looked
+    // broken here: the page keeps growing while files render, so each
+    // correction interrupted the running animation and the view appeared
+    // to jump between sections. An instant jump plus corrections that
+    // nobody sees behaves like a normal anchor link.
     const STICKY_OFFSET = 120;
-    scrollToWithStickyOffset(hit.el);
-    for (let i = 0; i < 8; i++) {
-      await wait(i < 4 ? 120 : 260);
-      const top = hit.el.getBoundingClientRect().top;
-      const delta = top - STICKY_OFFSET;
-      if (Math.abs(delta) < 6) break;
+    const align = () => {
+      const delta = hit.el.getBoundingClientRect().top - STICKY_OFFSET;
+      if (Math.abs(delta) < 4) return true;
       window.scrollBy({ top: delta, behavior: 'instant' });
+      return false;
+    };
+    align();
+    let settled = 0;
+    for (let i = 0; i < 8 && settled < 2; i++) {
+      await wait(i < 4 ? 100 : 220);
+      settled = align() ? settled + 1 : 0;
     }
     lastJumpAt = Date.now();
     hit.el.classList.add('grdc-change-flash');
