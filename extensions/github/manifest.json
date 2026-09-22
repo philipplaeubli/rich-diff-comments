@@ -1,25 +1,54 @@
 {
   "manifest_version": 3,
-  "name": "Markdown PR — Markdown PR Comments for GitHub",
+  "name": "Markdown PR Comments for GitHub (Firefox)",
   "version": "1.9.0",
-  "description": "Comment, reply, resolve, and collapse sections directly in GitHub PR rich-diff (rendered markdown) view.",
-  "author": "chienyuanchang",
-
-  "homepage_url": "https://github.com/chienyuanchang/rich-diff-comments",
+  "description": "Comment on sentences, reply, resolve, and collapse sections directly in GitHub PR rich-diff (rendered markdown) view.",
+  "author": "chienyuanchang, Firefox port by Phil Läubli",
+  "homepage_url": "https://github.com/grizzi/rich-diff-comments",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "host_permissions": ["https://github.com/*"],
+  "host_permissions": [
+    "https://github.com/*"
+  ],
   "content_scripts": [
     {
       "matches": [
         "https://github.com/*/pull/*"
       ],
-      "js": ["src/lib/textMatch.js", "src/lib/responses.js", "src/lib/tableRows.js", "src/lib/markdownPreview.js", "src/lib/codeBlocks.js", "src/lib/sidebar.js", "src/lib/anchors.js", "src/lib/outline.js", "src/lib/roles.js", "src/lib/sectionCollapse.js", "src/lib/changes.js", "src/lib/lineMap.js", "content.js"],
-      "css": ["styles.css"]
+      "js": [
+        "src/lib/textMatch.js",
+        "src/lib/responses.js",
+        "src/lib/tableRows.js",
+        "src/lib/markdownPreview.js",
+        "src/lib/codeBlocks.js",
+        "src/lib/sidebar.js",
+        "src/lib/anchors.js",
+        "src/lib/outline.js",
+        "src/lib/roles.js",
+        "src/lib/sectionCollapse.js",
+        "src/lib/changes.js",
+        "src/lib/lineMap.js",
+        "src/lib/selection.js",
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ]
     }
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "rich-diff-comments@laeubli",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
 }

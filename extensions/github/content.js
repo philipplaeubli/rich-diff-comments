@@ -46,7 +46,22 @@
     isInDeletedBlock,
     mapBlocksToSourceLines,
     buttonAnchor,
+    resolveSelectionLines,
+    normalizeQuote,
+    buildQuotedBody,
+    extractLeadingQuote,
+    findTextRange,
   } = (typeof window !== 'undefined' && window.GRDC) || {};
+
+  // Firefox: a content script's global `fetch` runs with the extension's
+  // principal, so GitHub can see a different Origin / Sec-Fetch-Site than
+  // its own UI sends and reject the internal `page_data` endpoints.
+  // `content.fetch` issues the request exactly as the page would. Chrome
+  // has no `content` global and keeps the normal `fetch`.
+  // eslint-disable-next-line no-shadow
+  const fetch = (typeof content !== 'undefined' && content && typeof content.fetch === 'function')
+    ? content.fetch.bind(content)
+    : window.fetch.bind(window);
 
   // Wrap findTextInSource so we can keep the per-file diagnostic counter behavior
   // that the rest of the file relies on (resetting it before each file's scan).
@@ -2106,12 +2121,33 @@
     }
     box.appendChild(header);
 
+    // Selection comment: show the selected words as a quote above the
+    // editor. The quote is posted as a leading `> …` line so every GitHub
+    // client shows it, and so a reload can highlight the same words again.
+    let quoteToggle = null;
+    if (info.quote) {
+      const quoteRow = document.createElement('div');
+      quoteRow.className = 'grdc-quote-preview';
+      const text = normalizeQuote(info.quote);
+      quoteRow.innerHTML = `
+        <label class="grdc-quote-toggle" title="Post the selected text as a quote at the top of the comment">
+          <input type="checkbox" checked /> Quote
+        </label>
+        <blockquote>${escapeHtml(text.length > 400 ? text.slice(0, 400) + '…' : text)}</blockquote>
+      `;
+      quoteToggle = quoteRow.querySelector('input');
+      box.appendChild(quoteRow);
+    }
+
     // Submit handler (used by both button click and Cmd+Enter)
     let submitBtn; // forward decl so onSubmit can disable it
     let editor;    // forward decl so onSubmit can read the textarea
     const submit = async () => {
-      const body = editor.textarea.value.trim();
-      if (!body) return;
+      const typed = editor.textarea.value.trim();
+      if (!typed) return;
+      const body = (info.quote && quoteToggle && quoteToggle.checked)
+        ? buildQuotedBody(info.quote, typed)
+        : typed;
       const lineToPost = parseInt(box.querySelector('.grdc-line-input').value, 10) || info.line;
       const startInput = box.querySelector('.grdc-line-start-input');
       let startLineToPost = startInput ? parseInt(startInput.value, 10) || null : null;
@@ -2143,8 +2179,10 @@
           // whole tint band. `element` is the block the user clicked `+` on,
           // which for a drag-selected range is already the start block.
           renderThreadOnElement(element, newComments);
+          highlightThreadQuote(newComments[0], element);
           buildThreadsSidebar();
         }
+        setPendingHighlight(null);
         const success = document.createElement('div');
         success.className = 'grdc-success';
         success.textContent = '✓ Comment posted';
@@ -2166,10 +2204,30 @@
     const actions = document.createElement('div');
     actions.className = 'grdc-comment-actions';
     actions.innerHTML = `
+      <button class="grdc-btn grdc-btn-suggest" title="Insert a GitHub suggestion block with the source lines">Suggest change</button>
       <button class="grdc-btn grdc-btn-cancel">Cancel</button>
       <button class="grdc-btn grdc-btn-primary" title="Ctrl/⌘ + Enter">Comment</button>
     `;
     box.appendChild(actions);
+
+    // Suggest change: prefill a ```suggestion block with the raw source of
+    // the current line range. GitHub renders it with an "Apply" button.
+    // A suggestion replaces whole lines, so the quote is switched off.
+    actions.querySelector('.grdc-btn-suggest').addEventListener('click', () => {
+      const raw = rawSourceCache.get(info.path);
+      if (!raw) return;
+      const lines = raw.split('\n');
+      const end = parseInt(box.querySelector('.grdc-line-input').value, 10) || info.line;
+      const startInput = box.querySelector('.grdc-line-start-input');
+      const start = startInput ? (parseInt(startInput.value, 10) || end) : end;
+      const snippet = lines.slice(Math.max(0, start - 1), end).join('\n');
+      const ta = editor.textarea;
+      const block = '```suggestion\n' + snippet + '\n```\n';
+      ta.value = ta.value ? ta.value.replace(/\s*$/, '\n\n') + block : block;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      if (quoteToggle) quoteToggle.checked = false;
+      ta.focus();
+    });
 
     element.after(box);
     // Move into a safe sibling slot if needed (e.g. <tr> → after <table>)
@@ -2179,11 +2237,177 @@
     const cancelBtn = actions.querySelector('.grdc-btn-cancel');
     submitBtn = actions.querySelector('.grdc-btn-primary');
 
-    cancelBtn.addEventListener('click', () => box.remove());
+    cancelBtn.addEventListener('click', () => { box.remove(); setPendingHighlight(null); });
     submitBtn.addEventListener('click', submit);
 
     editor.focus();
   }
+
+  // ── UI: Comment on a text selection ─────────────────────────────────────────
+  //
+  // Select any words in a rendered block (one sentence, or across several
+  // blocks of the same file) → a floating "Comment" button appears. The
+  // selection is resolved to exact source lines, then the normal comment box
+  // opens with the selected text as a quote. `c` does the same from the
+  // keyboard. The selection stays highlighted while the box is open.
+
+  const HAS_HIGHLIGHTS = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight === 'function';
+  const quoteHighlight = HAS_HIGHLIGHTS ? new Highlight() : null;
+  const pendingHighlight = HAS_HIGHLIGHTS ? new Highlight() : null;
+  if (HAS_HIGHLIGHTS) {
+    CSS.highlights.set('grdc-quote', quoteHighlight);
+    CSS.highlights.set('grdc-pending', pendingHighlight);
+  }
+
+  function clearQuoteHighlights() {
+    if (quoteHighlight) quoteHighlight.clear();
+  }
+
+  function setPendingHighlight(range) {
+    if (!pendingHighlight) return;
+    pendingHighlight.clear();
+    if (range) pendingHighlight.add(range);
+  }
+
+  const skipInjectedText = (n) => {
+    const p = n.parentElement;
+    return !!(p && p.closest('.grdc-existing-thread, .grdc-comment-box, .grdc-reply-box, .grdc-comment-btn, .grdc-collapse-toggle'));
+  };
+
+  // Highlight the quoted words of a thread head inside its anchor block. For
+  // quotes that cross blocks, try the following blocks of the same file too.
+  function highlightThreadQuote(head, anchorEl, blocks) {
+    if (!quoteHighlight || !head) return;
+    const quote = extractLeadingQuote(head.body);
+    if (!quote) return;
+    const candidates = [anchorEl];
+    if (blocks) {
+      const i = blocks.findIndex(b => b.element === anchorEl);
+      if (i !== -1) blocks.slice(i + 1, i + 4).forEach(b => candidates.push(b.element));
+    }
+    for (const el of candidates) {
+      const range = findTextRange(el, quote, document, skipInjectedText);
+      if (range) { quoteHighlight.add(range); return; }
+    }
+    // Multi-block quote: highlight from the start of the quote in the anchor
+    // block to the end of the quote in a later block.
+    const words = quote.split(' ');
+    if (words.length < 6 || !blocks) return;
+    const head5 = words.slice(0, 5).join(' ');
+    const tail5 = words.slice(-5).join(' ');
+    const startRange = findTextRange(anchorEl, head5, document, skipInjectedText);
+    if (!startRange) return;
+    for (const el of candidates.slice(1)) {
+      const endRange = findTextRange(el, tail5, document, skipInjectedText);
+      if (endRange) {
+        const r = document.createRange();
+        r.setStart(startRange.startContainer, startRange.startOffset);
+        r.setEnd(endRange.endContainer, endRange.endOffset);
+        quoteHighlight.add(r);
+        return;
+      }
+    }
+  }
+
+  function mappedBlockForNode(node) {
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    return findMappedBlockFromTarget(el);
+  }
+
+  // Resolve the current window selection to { element, info, quote, range }
+  // or null when it is not a usable rich-diff selection.
+  function currentSelectionTarget() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    const quote = normalizeQuote(sel.toString());
+    if (quote.length < 2) return null;
+    const startEl = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+    if (startEl && startEl.closest('.grdc-existing-thread, .grdc-comment-box, .grdc-reply-box, .grdc-sidebar')) return null;
+    const startHit = mappedBlockForNode(range.startContainer);
+    const endHit = mappedBlockForNode(range.endContainer) || startHit;
+    if (!startHit || !endHit || startHit.info.path !== endHit.info.path) return null;
+
+    const path = startHit.info.path;
+    let startLine = Math.min(startHit.info.line, endHit.info.line);
+    let endLine = Math.max(startHit.info.line, endHit.info.line);
+    const raw = rawSourceCache.get(path);
+    if (raw) {
+      const index = buildSourceIndex(raw.split('\n'));
+      const hint = startHit.info.blockStartLine != null ? startHit.info.blockStartLine : startHit.info.line;
+      const resolved = resolveSelectionLines(index, quote, hint, cleanRenderedText, findLineAtOffset);
+      if (resolved) {
+        startLine = resolved.startLine;
+        endLine = resolved.endLine;
+      }
+    }
+    return { element: startHit.element, path, startLine, endLine, quote, range: range.cloneRange() };
+  }
+
+  let selectionPop = null;
+  function hideSelectionPop() {
+    if (selectionPop) { selectionPop.remove(); selectionPop = null; }
+  }
+
+  function openSelectionComment(target) {
+    hideSelectionPop();
+    setPendingHighlight(target.range);
+    openCommentBox(target.element, {
+      path: target.path,
+      line: target.endLine,
+      startLine: target.startLine !== target.endLine ? target.startLine : undefined,
+      quote: target.quote,
+    });
+    const sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+  }
+
+  function showSelectionPop() {
+    hideSelectionPop();
+    if (dragAnchor) return;
+    const target = currentSelectionTarget();
+    if (!target) return;
+    const rects = target.range.getClientRects();
+    const rect = rects.length ? rects[rects.length - 1] : target.range.getBoundingClientRect();
+    const pop = document.createElement('button');
+    pop.type = 'button';
+    pop.className = 'grdc-selection-pop';
+    pop.title = `Comment on the selection (${target.path}:${target.startLine === target.endLine ? target.startLine : target.startLine + '–' + target.endLine}) · shortcut: c`;
+    pop.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M1 2.75C1 1.78 1.78 1 2.75 1h10.5c.97 0 1.75.78 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.57 2.57A1.46 1.46 0 0 1 4 13.54V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .14.11.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.75.75 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><span>Comment</span>';
+    pop.style.top = `${window.scrollY + rect.bottom + 6}px`;
+    pop.style.left = `${window.scrollX + Math.max(8, Math.min(rect.right - 40, document.documentElement.clientWidth - 120))}px`;
+    // mousedown would collapse the selection before click fires.
+    pop.addEventListener('mousedown', (e) => e.preventDefault());
+    pop.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openSelectionComment(target);
+    });
+    document.body.appendChild(pop);
+    selectionPop = pop;
+  }
+
+  document.addEventListener('mouseup', (e) => {
+    if (e.button !== 0) return;
+    if (e.target instanceof Element && e.target.closest('.grdc-selection-pop')) return;
+    // Let the selection settle (a click inside a selection collapses it
+    // only after mouseup).
+    setTimeout(showSelectionPop, 0);
+  });
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (selectionPop && (!sel || sel.isCollapsed)) hideSelectionPop();
+  });
+  document.addEventListener('keyup', (e) => {
+    // Keyboard selection (Shift+arrows) — show the button when done.
+    if (e.shiftKey && e.key.startsWith('Arrow')) showSelectionPop();
+  });
+  window.addEventListener('scroll', () => {
+    // Keep it simple: the button is absolutely positioned, so it scrolls
+    // with the page. Only hide it if the selection went away.
+    const sel = window.getSelection();
+    if (selectionPop && (!sel || sel.isCollapsed)) hideSelectionPop();
+  }, { passive: true });
 
   // ── Existing Comments ───────────────────────────────────────────────────────
 
@@ -2284,6 +2508,7 @@
     document.querySelectorAll('.grdc-existing-thread').forEach(el => el.remove());
     // Clear any range tints from a previous render so they don't accumulate.
     document.querySelectorAll('.grdc-thread-range').forEach(el => el.classList.remove('grdc-thread-range'));
+    clearQuoteHighlights();
 
     if (existingComments.length === 0) return;
 
@@ -2348,6 +2573,7 @@
       paintThreadRange(head.path, head.startLine, head.line);
 
       renderThreadOnElement(target, comments);
+      highlightThreadQuote(head, target, blocks);
     });
 
     const totalRendered = document.querySelectorAll('.grdc-existing-thread').length;
@@ -2861,8 +3087,10 @@
   // to render after a re-init).
   function clearInjectedDom() {
     document.querySelectorAll(
-      '.grdc-comment-btn, .grdc-collapse-toggle, .grdc-existing-thread, .grdc-comment-box, .grdc-reply-box'
+      '.grdc-comment-btn, .grdc-collapse-toggle, .grdc-existing-thread, .grdc-comment-box, .grdc-reply-box, .grdc-selection-pop'
     ).forEach((el) => el.remove());
+    clearQuoteHighlights();
+    setPendingHighlight(null);
     document.querySelectorAll(
       '.grdc-hoverable, .grdc-collapsible, .grdc-section-collapsed, .grdc-collapsed-hidden, .grdc-thread-range, .grdc-range-hover'
     ).forEach((el) => {
@@ -4709,6 +4937,15 @@
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // `c` — comment on the current text selection.
+    if (e.key === 'c' && !e.shiftKey) {
+      const target = currentSelectionTarget();
+      if (target) {
+        e.preventDefault();
+        openSelectionComment(target);
+        return;
+      }
+    }
     // Sidebar visibility shortcuts run BEFORE the "sidebar must exist with
     // cards" check below so they still work when the sidebar is collapsed
     // or has no threads (Outline-only mode).
@@ -5049,6 +5286,7 @@
               node.classList?.contains('grdc-reply-box') ||
               node.classList?.contains('grdc-comment-edit') ||
               node.classList?.contains('grdc-comment-menu-popover') ||
+              node.classList?.contains('grdc-selection-pop') ||
               node.classList?.contains('grdc-sidebar')) continue;
           if (node.classList?.contains('markdown-body') ||
               node.classList?.contains('rich-diff-level-one') ||

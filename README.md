@@ -1,3 +1,32 @@
+# Firefox port (GitHub target)
+
+This fork runs the GitHub extension in Firefox 140 or later and adds comments on a text selection.
+
+## Comment on a selection
+
+1. Open a PR, go to the changed files, and switch a Markdown file to rich diff.
+2. Select a sentence or a few words. You can select across blocks of the same file.
+3. Click the **Comment** button below the selection, or press `c`.
+4. Type the comment and click **Comment**.
+
+The extension finds the exact source line (or line range) of the selection, also in hard-wrapped paragraphs. The comment starts with the selection as a `> quote`, so every GitHub client shows what the comment is about. On reload, the extension highlights the quoted words in the rendered text. Clear the **Quote** checkbox to post without the quote. **Suggest change** inserts a GitHub `suggestion` block with the raw source lines.
+
+## Install in Firefox
+
+Firefox release builds only install signed extensions. Pick one of these:
+
+- Temporary (until Firefox restarts): open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**, and select `extensions/github/manifest.json`. Run `./scripts/dev-sync.sh github` first.
+- Permanent: sign it as an unlisted add-on with your addons.mozilla.org API key, then open the `.xpi` in Firefox:
+
+```bash
+./scripts/dev-sync.sh github
+web-ext sign -s extensions/github --channel=unlisted --api-key=$AMO_JWT_ISSUER --api-secret=$AMO_JWT_SECRET
+```
+
+`npm run build:firefox` builds an unsigned zip into `releases/`. `npm run test:e2e:firefox` runs the browser tests on Firefox.
+
+---
+
 # Markdown PR Comments for GitHub and Azure DevOps
 
 Two separate Chrome/Edge extensions that let you leave **and view** inline pull-request review comments directly in rendered Markdown:

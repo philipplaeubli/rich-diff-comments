@@ -1688,3 +1688,65 @@ li.grdc-hoverable .grdc-comment-btn {
     background: rgba(56, 139, 253, 0.06);
   }
 }
+
+/* ── Selection comments ──────────────────────────────────────────────── */
+
+.grdc-selection-pop {
+  position: absolute;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--fgColor-onEmphasis, var(--color-fg-on-emphasis, #ffffff));
+  background: var(--bgColor-accent-emphasis, var(--color-accent-emphasis, #0969da));
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.grdc-selection-pop:hover {
+  filter: brightness(1.1);
+}
+
+.grdc-quote-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 12px 0;
+}
+
+.grdc-quote-preview blockquote {
+  flex: 1;
+  margin: 0;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+  border-left: 3px solid var(--bgColor-attention-emphasis, var(--color-attention-emphasis, #bf8700));
+}
+
+.grdc-quote-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
+  cursor: pointer;
+}
+
+.grdc-comment-actions .grdc-btn-suggest {
+  margin-right: auto;
+}
+
+::highlight(grdc-quote) {
+  background-color: rgba(212, 167, 44, 0.35);
+}
+
+::highlight(grdc-pending) {
+  background-color: rgba(9, 105, 218, 0.25);
+}
