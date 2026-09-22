@@ -2260,24 +2260,22 @@ html.grdc-panel-docked body {
    connects the outline to the diff. */
 
 .grdc-spec-changed {
-  position: relative;
   font-weight: 600;
 }
 
-.grdc-spec-changed::before {
-  content: "";
-  position: absolute;
-  left: 8px;
-  top: 50%;
+/* Marker column: the same width on every row, so the labels line up. */
+.grdc-spec-dot {
+  flex: 0 0 auto;
   width: 6px;
   height: 6px;
-  margin-top: -3px;
-  background: var(--bgColor-attention-emphasis, var(--color-attention-emphasis, #bf8700));
+  margin-right: 2px;
   border-radius: 50%;
+  background: transparent;
 }
 
-.grdc-spec-req > summary > .grdc-spec-changed::before {
-  left: -14px;
+/* Green, the color GitHub uses for added content. */
+.grdc-spec-dot-on {
+  background: var(--fgColor-success, var(--color-success-fg, #1a7f37));
 }
 
 .grdc-spec-filter {

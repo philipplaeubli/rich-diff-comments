@@ -5157,6 +5157,12 @@
     row.type = 'button';
     row.style.paddingLeft = `${22 + (opts.indent || 0) * 14}px`;
     if (opts.changed) row.classList.add('grdc-spec-changed');
+    // The marker is a column of its own: every row reserves the same width,
+    // so labels stay aligned whether or not the row changed.
+    const dot = specEl('span', 'grdc-spec-dot' + (opts.changed ? ' grdc-spec-dot-on' : ''));
+    dot.setAttribute('aria-hidden', 'true');
+    if (opts.changed) dot.title = 'Changed by this pull request';
+    row.appendChild(dot);
     if (opts.glyph) row.appendChild(specEl('span', 'grdc-spec-glyph', opts.glyph));
     row.appendChild(specEl('span', 'grdc-spec-row-label', label));
     (opts.pills || []).forEach(p => row.appendChild(p));
@@ -5881,6 +5887,7 @@
   });
 
   let autoRenderedPath = null;
+  let autoRenderRetries = 0;
 
   // Scroll to the OpenSpec proposal of this PR, if it has one.
   function jumpToProposal() {
@@ -5921,12 +5928,29 @@
     // rendered view. Once per page load, and only while the top-bar toggle
     // is on.
     let justRendered = false;
-    if (autoRenderEnabled() && autoRenderedPath !== window.location.pathname) {
-      autoRenderedPath = window.location.pathname;
+    const path = window.location.pathname;
+    if (autoRenderEnabled() && autoRenderedPath !== path) {
+      const expectedMd = (routeData?.diffSummaries || []).filter(f => isMarkdownPath(f.path)).length;
+      const alreadyRich = document.querySelectorAll('.prose-diff').length;
       try {
         const flipped = await flipAllMdToRichDiff();
         if (flipped) await fetchRouteData();
-        justRendered = true;
+        justRendered = flipped > 0;
+        // Only call it done when something actually happened, or when
+        // there is nothing to do. On a fresh SPA navigation the file list
+        // is often still loading, and a retry a moment later succeeds —
+        // that is the "sometimes it does not render" case, which a page
+        // reload never hits because the files are in the first response.
+        if (flipped > 0 || expectedMd === 0 || alreadyRich >= expectedMd) {
+          autoRenderedPath = path;
+          autoRenderRetries = 0;
+        } else if (autoRenderRetries < 5) {
+          autoRenderRetries++;
+          console.log(`[GRDC] Auto-render found nothing to click, retry ${autoRenderRetries}/5`);
+          setTimeout(() => { if (window.location.pathname === path) init(); }, 700 * autoRenderRetries);
+        } else {
+          autoRenderedPath = path;
+        }
       } catch (e) {
         console.log('[GRDC] Auto-render failed:', e.message);
       }
