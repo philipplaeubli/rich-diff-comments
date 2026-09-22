@@ -71,6 +71,7 @@ test.describe('OpenSpec pane', () => {
 
   test('the bar arrows walk the requirements of the spec outline', async ({ page }) => {
     await setup(page, OPENSPEC_FILES);
+    await page.keyboard.press('4');
     const count = page.locator('.grdc-specnav-count');
     // Every row of the outline except the scenarios: proposal sections,
     // delta groups, requirements, task groups and tasks.
@@ -83,6 +84,18 @@ test.describe('OpenSpec pane', () => {
     await page.locator('.grdc-specnav-prev').click();
     await page.locator('.grdc-specnav-prev').click();
     await expect(count).toHaveText('21/21');
+  });
+
+  test('rows the PR changed are marked, and "Changed only" keeps just those', async ({ page }) => {
+    await setup(page, OPENSPEC_FILES);
+    await page.keyboard.press('4');
+    await expect(page.locator('.grdc-spec-row').first()).toBeVisible();
+    // The OpenSpec files are not rendered in this fixture, so no row is
+    // marked as changed and the filter empties the tree.
+    await page.locator('.grdc-spec-filter-cb').check();
+    await expect(page.locator('.grdc-spec-tree')).toContainText('This PR changes no part of the spec.');
+    await page.locator('.grdc-spec-filter-cb').uncheck();
+    await expect(page.locator('.grdc-spec-req-row').first()).toBeVisible();
   });
 
   test('the Spec tab stays hidden on a PR without OpenSpec files', async ({ page }) => {

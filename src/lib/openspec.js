@@ -272,6 +272,22 @@
     return out;
   }
 
+  /** True when any line of `lines` (a Set or array) falls inside [start, end]. */
+  function hasLineInRange(lines, start, end) {
+    if (!lines || start == null) return false;
+    const last = end == null ? start : end;
+    if (typeof lines.has === 'function' && typeof lines.size === 'number') {
+      if (last - start > lines.size) {
+        for (const line of lines) if (line >= start && line <= last) return true;
+        return false;
+      }
+      for (let line = start; line <= last; line++) if (lines.has(line)) return true;
+      return false;
+    }
+    for (const line of lines) if (line >= start && line <= last) return true;
+    return false;
+  }
+
   /** Count thread heads that fall inside [startLine, endLine] of `path`. */
   function countThreadsInRange(threadHeads, path, startLine, endLine) {
     let n = 0;
@@ -293,5 +309,6 @@
     plainInline,
     buildOpenSpecOutline,
     countThreadsInRange,
+    hasLineInRange,
   };
 });

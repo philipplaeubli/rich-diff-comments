@@ -2254,3 +2254,32 @@ html.grdc-panel-docked body {
 .grdc-panel-autorender[aria-pressed="false"] {
   opacity: 0.4;
 }
+
+/* Spec rows this PR actually touched. In the follow-up case — a later PR
+   edits a merged spec and ticks off a task — this is the only marker that
+   connects the outline to the diff. */
+
+.grdc-spec-changed {
+  position: relative;
+  font-weight: 600;
+}
+
+.grdc-spec-changed::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--bgColor-attention-emphasis, var(--color-attention-emphasis, #bf8700));
+  border-radius: 50%;
+}
+
+.grdc-spec-req > summary > .grdc-spec-changed::before {
+  left: -14px;
+}
+
+.grdc-spec-filter {
+  border-bottom: 1px solid var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+}

@@ -11,6 +11,7 @@ const {
   plainInline,
   buildOpenSpecOutline,
   countThreadsInRange,
+  hasLineInRange,
 } = require('../src/lib/openspec.js');
 
 const SPEC = [
@@ -158,4 +159,15 @@ test('countThreadsInRange and plainInline', () => {
   assert.strictEqual(countThreadsInRange(heads, 'a.md', 7, 17), 2);
   assert.strictEqual(plainInline('Add the `x` **table** [doc](http://a)', 0), 'Add the x table doc');
   assert.strictEqual(plainInline('abcdefghij', 5), 'abcd…');
+});
+
+test('hasLineInRange works with a Set and with an array', () => {
+  const set = new Set([4, 19, 44]);
+  assert.strictEqual(hasLineInRange(set, 7, 24), true);
+  assert.strictEqual(hasLineInRange(set, 20, 43), false);
+  assert.strictEqual(hasLineInRange(set, 19, 19), true);
+  // Wide range, few lines: the loop runs over the lines instead.
+  assert.strictEqual(hasLineInRange(set, 1, 1000), true);
+  assert.strictEqual(hasLineInRange([4, 19], 5, 18), false);
+  assert.strictEqual(hasLineInRange(null, 1, 5), false);
 });

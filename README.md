@@ -19,7 +19,7 @@ On a pull request's changed-files page, every changed Markdown file is rendered 
 
 ## OpenSpec outline
 
-When a PR changes files under `openspec/`, the sidebar gets a Spec tab (shortcut `4`). It shows each change as an outline: the proposal sections, each capability with its ADDED, MODIFIED, REMOVED, and RENAMED requirements and their scenarios, and the tasks with progress. It also shows thread counts, and a warning for each requirement without a scenario or without SHALL or MUST. The outline reads the raw files, so it works before you render any file. Click a row to jump to the rendered block, or to the source-diff line if the file is not in rich diff.
+When a PR changes files under `openspec/`, the sidebar gets a Spec tab (shortcut `4`). It shows each change as an outline: the proposal sections, each capability with its ADDED, MODIFIED, REMOVED, and RENAMED requirements and their scenarios, and the tasks with progress. It also shows thread counts, and a warning for each requirement without a scenario or without SHALL or MUST. Every row the PR actually touched carries a dot, and **Changed only** hides the rest, so a follow-up PR that edits a merged spec and ticks off a task shows exactly those two things. The outline reads the raw files, so it works before you render any file. Click a row to jump to the rendered block, or to the source-diff line if the file is not in rich diff.
 
 ## Glossary terms
 

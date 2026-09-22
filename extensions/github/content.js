@@ -54,6 +54,7 @@
     classifyOpenSpecPath,
     buildOpenSpecOutline,
     countThreadsInRange,
+    hasLineInRange,
     plainInline,
     parseGlossary,
     buildGlossaryMatcher,
@@ -3695,6 +3696,10 @@
           <div class="grdc-sidebar-changes-list" role="list"></div>
         </div>
         <div class="grdc-sidebar-pane grdc-sidebar-pane-spec" data-grdc-pane="spec" hidden>
+          <label class="grdc-sidebar-filter grdc-spec-filter">
+            <input type="checkbox" class="grdc-spec-filter-cb">
+            Changed only
+          </label>
           <div class="grdc-spec-tree"></div>
         </div>
         </div>
@@ -3754,6 +3759,11 @@
       if (diffIconBtn) diffIconBtn.addEventListener('click', () => jumpToFirstInCurrentFile(sidebar, 'changes'));
       const threadIconBtn = sidebar.querySelector('.grdc-sidebar-thread-icon');
       if (threadIconBtn) threadIconBtn.addEventListener('click', () => jumpToFirstInCurrentFile(sidebar, 'threads'));
+      sidebar.querySelector('.grdc-spec-filter-cb').addEventListener('change', (e) => {
+        try { localStorage.setItem(SPEC_CHANGED_ONLY_KEY, e.target.checked ? '1' : '0'); } catch (_) {}
+        applySpecFilter(sidebar);
+        updateSpecNav();
+      });
       sidebar.querySelector('.grdc-sidebar-filter-cb').addEventListener('change', (e) => {
         try { localStorage.setItem(SIDEBAR_FILTER_KEY, e.target.checked ? '1' : '0'); } catch (_) {}
         // Sync the header icon's pressed state.
@@ -4286,8 +4296,10 @@
   let specNavIdx = -1;
 
   function specNavTargets() {
-    const spec = document.querySelectorAll('.grdc-spec-tree .grdc-spec-row:not(.grdc-spec-scenario):not(.grdc-spec-purpose)');
-    if (spec.length) return Array.from(spec);
+    const spec = Array.from(document.querySelectorAll(
+      '.grdc-spec-tree .grdc-spec-row:not(.grdc-spec-scenario):not(.grdc-spec-purpose)'
+    )).filter(el => !el.hidden && !el.closest('details[hidden], .grdc-spec-change[hidden]'));
+    if (spec.length) return spec;
     return Array.from(document.querySelectorAll('.grdc-sidebar-outline-tree .grdc-sidebar-outline-row'));
   }
 
@@ -4336,6 +4348,7 @@
     const title = sidebar.querySelector('.grdc-panel-title');
     const activeTab = sidebar.querySelector('.grdc-sidebar-tab-active');
     if (title && activeTab) title.textContent = activeTab.textContent.trim();
+    updateSpecNav();
   }
 
   function foldOutlineAtLevel(level) {
@@ -5009,6 +5022,55 @@
   // Clicking a row jumps to the rendered block, or to the source-diff line
   // when the file is not in rich diff.
 
+  const SPEC_CHANGED_ONLY_KEY = 'grdc_spec_changed_only';
+
+  function specChangedOnly() {
+    try { return localStorage.getItem(SPEC_CHANGED_ONLY_KEY) === '1'; } catch (_) { return false; }
+  }
+
+  // Source lines this PR touched, per file, read from the rendered diff:
+  // every mapped block that carries an add / remove marker. Used to mark the
+  // requirements, sections and tasks a PR actually changed — the follow-up
+  // case, where a later PR edits a merged spec and ticks off a task.
+  function changedLinesByPath() {
+    const map = new Map();
+    fileLineMap.forEach((info, el) => {
+      if (!el.isConnected || !info || info.line == null) return;
+      if (!classifyChangeKind(el)) return;
+      if (!map.has(info.path)) map.set(info.path, new Set());
+      const set = map.get(info.path);
+      const start = info.blockStartLine != null ? info.blockStartLine : info.line;
+      for (let line = start; line <= info.line; line++) set.add(line);
+    });
+    return map;
+  }
+
+  // Hide everything without a change below it while the filter is on.
+  function applySpecFilter(sidebar) {
+    const tree = sidebar.querySelector('.grdc-spec-tree');
+    const cb = sidebar.querySelector('.grdc-spec-filter-cb');
+    if (!tree) return;
+    const on = specChangedOnly();
+    if (cb) cb.checked = on;
+    tree.classList.toggle('grdc-spec-filtered', on);
+    tree.querySelectorAll('.grdc-spec-row, details, .grdc-spec-change').forEach((el) => { el.hidden = false; });
+    if (!on) return;
+    tree.querySelectorAll('.grdc-spec-row').forEach((row) => {
+      if (!row.classList.contains('grdc-spec-changed')) row.hidden = true;
+    });
+    // A section survives only when something inside it changed.
+    const nodes = Array.from(tree.querySelectorAll('details, .grdc-spec-change'));
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i];
+      if (!node.querySelector('.grdc-spec-changed')) node.hidden = true;
+      else node.open = true;
+    }
+    if (!tree.querySelector('.grdc-spec-changed')) {
+      const empty = specEl('div', 'grdc-spec-loading', 'This PR changes no part of the spec.');
+      tree.appendChild(empty);
+    }
+  }
+
   let specBuildGeneration = 0;
   const specClosedKeys = new Set();
 
@@ -5040,6 +5102,7 @@
         source: path.endsWith('.md') || path.endsWith('.yaml') ? (rawSourceCache.get(path) ?? null) : null,
       }));
       renderSpecTree(treeEl, buildOpenSpecOutline(files));
+      applySpecFilter(sidebar);
     };
     render();
 
@@ -5093,6 +5156,7 @@
     const row = specEl('button', 'grdc-spec-row' + (opts.className ? ' ' + opts.className : ''));
     row.type = 'button';
     row.style.paddingLeft = `${22 + (opts.indent || 0) * 14}px`;
+    if (opts.changed) row.classList.add('grdc-spec-changed');
     if (opts.glyph) row.appendChild(specEl('span', 'grdc-spec-glyph', opts.glyph));
     row.appendChild(specEl('span', 'grdc-spec-row-label', label));
     (opts.pills || []).forEach(p => row.appendChild(p));
@@ -5103,6 +5167,8 @@
 
   function renderSpecTree(treeEl, changes) {
     const heads = specThreadHeads();
+    const changedLines = changedLinesByPath();
+    const isChanged = (path, start, end) => hasLineInRange(changedLines.get(path), start, end);
     treeEl.innerHTML = '';
     for (const c of changes) {
       const box = specEl('div', 'grdc-spec-change');
@@ -5138,6 +5204,7 @@
             const n = countThreadsInRange(heads, doc.path, h.line, end);
             sec.appendChild(specRow(plainInline(h.title, 80), doc.path, h.line, {
               indent: h.level - 2,
+              changed: isChanged(doc.path, h.line, end),
               pills: n ? [specPill(`💬 ${n}`, 'threads', `${n} thread${n === 1 ? '' : 's'}`)] : [],
             }));
           }
@@ -5161,12 +5228,15 @@
             if (spec.parsed.purpose) {
               capSec.appendChild(specRow(plainInline(spec.parsed.purpose.text || 'Purpose', 90), spec.path, spec.parsed.purpose.line, {
                 className: 'grdc-spec-purpose', title: 'Purpose',
+                changed: isChanged(spec.path, spec.parsed.purpose.line, spec.parsed.purpose.line + 2),
               }));
             }
             for (const g of spec.parsed.groups) {
               const op = (g.op || 'REQ').toLowerCase();
+              const groupEnd = g.requirements.length ? g.requirements[g.requirements.length - 1].endLine : g.line;
               capSec.appendChild(specRow(g.op ? `${g.op}` : 'Requirements', spec.path, g.line, {
                 className: 'grdc-spec-group',
+                changed: isChanged(spec.path, g.line, groupEnd),
                 pills: [specPill(String(g.requirements.length), `op-${op}`, `${g.requirements.length} requirement(s)`)],
               }));
               for (const r of g.requirements) {
@@ -5181,9 +5251,15 @@
                 const summaryEl = reqSec.querySelector('summary');
                 summaryEl.appendChild(specRow(plainInline(r.name, 90), spec.path, r.line, {
                   className: `grdc-spec-req-row grdc-spec-op-${op}`, pills,
+                  changed: isChanged(spec.path, r.line, r.endLine),
                 }));
-                for (const sc of r.scenarios) {
-                  reqSec.appendChild(specRow(plainInline(sc.name, 90), spec.path, sc.line, { indent: 1, glyph: '▸', className: 'grdc-spec-scenario' }));
+                for (let i = 0; i < r.scenarios.length; i++) {
+                  const sc = r.scenarios[i];
+                  const scEnd = (r.scenarios[i + 1] ? r.scenarios[i + 1].line - 1 : r.endLine);
+                  reqSec.appendChild(specRow(plainInline(sc.name, 90), spec.path, sc.line, {
+                    indent: 1, glyph: '▸', className: 'grdc-spec-scenario',
+                    changed: isChanged(spec.path, sc.line, scEnd),
+                  }));
                 }
                 capSec.appendChild(reqSec);
               }
@@ -5210,14 +5286,17 @@
         else {
           for (const g of t.groups) {
             const done = g.tasks.filter(x => x.done).length;
+            const groupEnd = g.tasks.length ? g.tasks[g.tasks.length - 1].line : g.line;
             tasksSec.appendChild(specRow(plainInline(g.title, 80), c.tasks.path, g.line, {
               className: 'grdc-spec-group',
+              changed: isChanged(c.tasks.path, g.line, groupEnd),
               pills: [specPill(`${done}/${g.tasks.length}`, done === g.tasks.length ? 'done' : null)],
             }));
             for (const task of g.tasks) {
               const n = countThreadsInRange(heads, c.tasks.path, task.line, task.line);
               tasksSec.appendChild(specRow(`${task.id ? task.id + ' ' : ''}${plainInline(task.text, 70)}`, c.tasks.path, task.line, {
                 indent: 1 + task.depth,
+                changed: isChanged(c.tasks.path, task.line, task.line),
                 glyph: task.done ? '☑' : '☐',
                 className: task.done ? 'grdc-spec-task-done' : '',
                 title: plainInline(task.text, 400),
