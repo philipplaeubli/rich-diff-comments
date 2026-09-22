@@ -211,7 +211,7 @@ test('content.js: 1/2/3/4 keyboard shortcuts map to Changes / Threads / Outline 
   assert.deepEqual(m.slice(1, 5), ['changes', 'threads', 'outline', 'spec']);
 });
 
-test('content.js: default sidebar tab is `outline` when no preference saved', () => {
+test('content.js: default sidebar tab is `spec` when no preference saved', () => {
   // The default-tab fallback lives where the localStorage read is done:
   //   const savedTab = localStorage.getItem(SIDEBAR_TAB_KEY) || 'changes';
   // We scan for that pattern. If it changes shape, the test fails loudly.
@@ -223,8 +223,8 @@ test('content.js: default sidebar tab is `outline` when no preference saved', ()
     `Expected \`localStorage.getItem(SIDEBAR_TAB_KEY) || '…'\`.`
   );
   assert.equal(
-    m[1], 'outline',
-    `Expected default tab to be 'outline' (1.5.0 reorder \u2014 reviewers reach for change-nav first). ` +
+    m[1], 'spec',
+    `Expected default tab to be 'spec' (1.5.0 reorder \u2014 reviewers reach for change-nav first). ` +
     `Got '${m[1]}'. If you intentionally reverted the default, update this test and the matching ` +
     `entry in CHANGELOG.md so the change is recorded.`
   );

@@ -1041,6 +1041,33 @@
   // sees the first ~2 toggles. We scroll the page in steps, scanning
   // after each step so newly-rendered file headers are caught, then
   // restore the user's original scroll position when done.
+  // A solid cover over the page while we render. The sweep scrolls the
+  // document top to bottom to force GitHub's lazy file headers, and the
+  // page shifts several times while the rendered views replace the diffs.
+  // A see-through veil showed all of that; a solid one shows none of it.
+  // Reference-counted, so init can hold it across the whole startup.
+  let renderOverlayCount = 0;
+
+  function showRenderOverlay(message) {
+    renderOverlayCount++;
+    let overlay = document.querySelector('.grdc-render-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'grdc-render-overlay';
+      overlay.innerHTML = '<div class="grdc-render-overlay-card"><span class="grdc-render-spinner" aria-hidden="true"></span><span class="grdc-render-overlay-text"></span></div>';
+      document.body.appendChild(overlay);
+    }
+    const text = overlay.querySelector('.grdc-render-overlay-text');
+    if (text && message) text.textContent = message;
+    return overlay;
+  }
+
+  function hideRenderOverlay(force) {
+    renderOverlayCount = force ? 0 : Math.max(0, renderOverlayCount - 1);
+    if (renderOverlayCount > 0) return;
+    document.querySelectorAll('.grdc-render-overlay').forEach(el => el.remove());
+  }
+
   async function flipAllMdToRichDiff() {
     const seen = new Set();
     let clicked = 0;
@@ -1055,10 +1082,7 @@
       .filter(s => isMarkdownPath(s.path)).length;
     console.log(`[GRDC] flipAllMdToRichDiff: expecting ${expectedMd || '?'} md file(s)`);
 
-    const overlay = document.createElement('div');
-    overlay.className = 'grdc-render-overlay';
-    overlay.innerHTML = '<div class="grdc-render-overlay-card">Rendering Markdown files as rich-diff…</div>';
-    document.body.appendChild(overlay);
+    showRenderOverlay('Rendering the Markdown files…');
 
     try {
       // Two-phase approach:
@@ -1122,7 +1146,7 @@
       }
     } finally {
       window.scrollTo({ top: origScroll, behavior: 'instant' });
-      overlay.remove();
+      hideRenderOverlay();
     }
     console.log(`[GRDC] flipAllMdToRichDiff: scanned ${seen.size}/${expectedMd || '?'} md file(s); clicked ${clicked}`);
     setTimeout(() => { try { buildThreadsSidebar(); } catch (_) {} }, 400);
@@ -3558,11 +3582,15 @@
       '.prose-diff .markdown-body h1, .prose-diff .markdown-body h2, .prose-diff .markdown-body h3, .prose-diff .markdown-body h4, .prose-diff .markdown-body h5, .prose-diff .markdown-body h6'
     ).length;
     const outlineUseful = headingCount >= 1;
+    // With an OpenSpec change on the page the Spec tab already carries the
+    // document structure, so the Outline tab would only repeat it. Outline
+    // stays for every other Markdown PR, where nothing else shows headings.
+    const hasSpec = prOpenSpecPaths().length > 0;
     // Threads list is empty but Outline still has content (e.g. user
     // deleted all their comments on a long design doc) — keep the sidebar
     // and auto-switch to the Outline tab so the user immediately sees
     // why the sidebar is still there.
-    const forceOutlineTab = threadEls.length === 0 && outlineUseful;
+    const forceOutlineTab = threadEls.length === 0 && outlineUseful && !hasSpec;
 
     const unresolvedOnly = localStorage.getItem(SIDEBAR_FILTER_KEY) === '1';
     const collapsed = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === '1';
@@ -3658,10 +3686,10 @@
           </button>
         </div>
         <div class="grdc-sidebar-tabs" role="tablist">
-          <button class="grdc-sidebar-tab" data-grdc-tab="spec" role="tab" aria-selected="false" title="OpenSpec change (4)" hidden>Spec</button>
+          <button class="grdc-sidebar-tab grdc-sidebar-tab-active" data-grdc-tab="spec" role="tab" aria-selected="true" title="OpenSpec change (4)" hidden>Spec</button>
           <button class="grdc-sidebar-tab" data-grdc-tab="changes" role="tab" aria-selected="false" title="Changes (1)">Changes</button>
           <button class="grdc-sidebar-tab" data-grdc-tab="threads" role="tab" aria-selected="false" title="Threads (2)">Threads</button>
-          <button class="grdc-sidebar-tab grdc-sidebar-tab-active" data-grdc-tab="outline" role="tab" aria-selected="true" title="Outline (3)">Outline</button>
+          <button class="grdc-sidebar-tab" data-grdc-tab="outline" role="tab" aria-selected="false" title="Outline (3)">Outline</button>
         </div>
         <div class="grdc-panel">
           <div class="grdc-panel-grip">
@@ -3828,6 +3856,13 @@
     // When Threads is empty but Outline still has content, force-switch
     // to the Outline tab. Also rebuild the outline pane since its content
     // (heading list) may have changed since the last render.
+    if (hasSpec) {
+      const outlineTab = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="outline"]');
+      if (outlineTab) outlineTab.hidden = true;
+      if (localStorage.getItem(SIDEBAR_TAB_KEY) === 'outline') {
+        try { localStorage.setItem(SIDEBAR_TAB_KEY, 'spec'); } catch (_) {}
+      }
+    }
     if (forceOutlineTab) {
       buildOutlinePane(sidebar);
       setSidebarTab(sidebar, 'outline');
@@ -3942,7 +3977,7 @@
     // so the empty Threads list doesn't look like "the sidebar is
     // broken". Doesn't persist — once threads are back, the user's
     // saved preference resumes.
-    const savedTab = localStorage.getItem(SIDEBAR_TAB_KEY) || 'outline';
+    const savedTab = localStorage.getItem(SIDEBAR_TAB_KEY) || 'spec';
     setSidebarTab(sidebar, forceOutlineTab ? 'outline' : savedTab);
   }
 
@@ -4015,7 +4050,7 @@
       }
       return;
     }
-    tab.hidden = false;
+    tab.hidden = prOpenSpecPaths().length > 0;
 
     // Per-heading thread counts. `existingComments` is keyed by threadId; we
     // need a flat list `[{line, path}, ...]` of HEADs only (one per thread).
@@ -4329,7 +4364,8 @@
     // If outline tab is hidden (page has <3 headings) and user tried to
     // switch to it, fall back to threads.
     const outlineTab = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="outline"]');
-    if (target === 'outline' && outlineTab?.hidden) target = 'threads';
+    const specTabEl = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="spec"]');
+    if (target === 'outline' && outlineTab?.hidden) target = specTabEl && !specTabEl.hidden ? 'spec' : 'threads';
     // Same fallback for changes — the tab auto-hides when the page has
     // zero diff blocks (the rare "empty PR" case, or before init finishes).
     const changesTab = sidebar.querySelector('.grdc-sidebar-tab[data-grdc-tab="changes"]');
@@ -5928,10 +5964,16 @@
     // rendered view. Once per page load, and only while the top-bar toggle
     // is on.
     let justRendered = false;
+    let holdingOverlay = false;
     const path = window.location.pathname;
     if (autoRenderEnabled() && autoRenderedPath !== path) {
       const expectedMd = (routeData?.diffSummaries || []).filter(f => isMarkdownPath(f.path)).length;
       const alreadyRich = document.querySelectorAll('.prose-diff').length;
+      // Cover the page only when there is really something to render.
+      if (expectedMd > alreadyRich) {
+        showRenderOverlay('Rendering the Markdown files…');
+        holdingOverlay = true;
+      }
       try {
         const flipped = await flipAllMdToRichDiff();
         if (flipped) await fetchRouteData();
@@ -5953,6 +5995,12 @@
         }
       } catch (e) {
         console.log('[GRDC] Auto-render failed:', e.message);
+      }
+      // A retry is coming: take the cover down so the page is usable in
+      // between, and let the next pass put it up again.
+      if (autoRenderedPath !== path && holdingOverlay) {
+        holdingOverlay = false;
+        hideRenderOverlay();
       }
     }
 
@@ -5979,6 +6027,12 @@
     // proposal. Skipped when the URL already points somewhere (a link to a
     // file or a thread) so we never fight the user's own destination.
     if (justRendered && !window.location.hash) jumpToProposal();
+
+    // Everything is in place: reveal the settled page in one step.
+    if (holdingOverlay) {
+      holdingOverlay = false;
+      setTimeout(() => hideRenderOverlay(), 150);
+    }
 
     // If the page loaded with a heading hash (e.g. user clicked a TOC link
     // before our init finished), the browser's native scroll-to-anchor will

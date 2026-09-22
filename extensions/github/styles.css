@@ -1603,9 +1603,10 @@ li.grdc-hoverable .grdc-comment-btn {
 .grdc-render-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(13, 17, 23, 0.55);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  /* Solid, not see-through: the page below scrolls top to bottom and
+     re-lays out several times while rendering, and none of that is worth
+     showing. The reader sees one steady screen, then the finished page. */
+  background: var(--bgColor-default, var(--color-canvas-default, #ffffff));
   z-index: 10000;
   display: flex;
   align-items: center;
@@ -1614,15 +1615,31 @@ li.grdc-hoverable .grdc-comment-btn {
   animation: grdc-overlay-fade-in 120ms ease-out;
 }
 .grdc-render-overlay-card {
-  background: var(--fgColor-accent, var(--color-accent-fg, #0969da));
-  color: var(--fgColor-onEmphasis, var(--color-fg-on-emphasis, #ffffff));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #57606a));
   padding: 12px 20px;
   border-radius: 6px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
   font-size: 14px;
   font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
+
+.grdc-render-spinner {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--borderColor-muted, var(--color-border-muted, #d8dee4));
+  border-top-color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  border-radius: 50%;
+  animation: grdc-spin 700ms linear infinite;
+}
+
+@keyframes grdc-spin {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes grdc-overlay-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
