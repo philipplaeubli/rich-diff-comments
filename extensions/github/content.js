@@ -1068,9 +1068,24 @@
     document.querySelectorAll('.grdc-render-overlay').forEach(el => el.remove());
   }
 
+  // Wait until GitHub has put the file list in the DOM. After a click
+  // inside the app the files arrive a moment after the URL changes, and a
+  // sweep started too early finds nothing to click.
+  async function waitForRichDiffToggles(maxMs) {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      for (const container of findFileContainers()) {
+        if (findRichDiffToggleIn(container)) return true;
+      }
+      await wait(250);
+    }
+    return false;
+  }
+
   async function flipAllMdToRichDiff() {
     const seen = new Set();
     let clicked = 0;
+    const startedAt = Date.now();
     const origScroll = window.scrollY;
     const docHeight = () => Math.max(
       document.documentElement.scrollHeight,
@@ -1145,7 +1160,8 @@
         console.log(`[GRDC] flipAllMdToRichDiff: phase 2 (click sweep) done — ${seen.size}/${expectedMd || '?'}`);
       }
     } finally {
-      window.scrollTo({ top: origScroll, behavior: 'instant' });
+      // Do not fight a jump that happened while the sweep ran.
+      if (lastJumpAt <= startedAt) window.scrollTo({ top: origScroll, behavior: 'instant' });
       hideRenderOverlay();
     }
     console.log(`[GRDC] flipAllMdToRichDiff: scanned ${seen.size}/${expectedMd || '?'} md file(s); clicked ${clicked}`);
@@ -5355,22 +5371,89 @@
 
   // Jump to a source line: the rendered block when the file is in rich
   // diff, else GitHub's own source-diff line anchor.
-  async function jumpToSourceLine(path, line) {
-    let best = null;
+  // Find the file's diff container. GitHub's own `pathDigest` (from the
+  // route data) is authoritative; the sha256 of the path is a fallback for
+  // pages where the route data did not load.
+  async function findContainerForPath(path) {
+    for (const [digest, p] of pathDigestMap) {
+      if (p !== path) continue;
+      const byDigest = document.getElementById(`diff-${digest}`);
+      if (byDigest) return byDigest;
+    }
+    const el = document.getElementById(`diff-${await sha256Hex(path)}`);
+    if (el) return el;
+    for (const container of findFileContainers()) {
+      if (getContainerPath(container) === path) return container;
+    }
+    return null;
+  }
+
+  // The block for `path:line`: the last mapped block at or before the line,
+  // or else the first one after it. Returning something "after" matters for
+  // line 1 of a file whose first mapped block starts lower down.
+  function findBlockForLine(path, line) {
+    let before = null;
+    let after = null;
     fileLineMap.forEach((info, el) => {
-      if (info.path !== path || !el.isConnected || info.line > line) return;
-      if (!best || info.line > best.info.line) best = { el, info };
+      if (!info || info.path !== path || !el.isConnected || info.line == null) return;
+      if (info.line <= line) {
+        if (!before || info.line > before.info.line) before = { el, info };
+      } else if (!after || info.line < after.info.line) {
+        after = { el, info };
+      }
     });
-    if (best) {
-      scrollToWithStickyOffset(best.el);
-      best.el.classList.add('grdc-change-flash');
-      setTimeout(() => best.el.classList.remove('grdc-change-flash'), 1200);
+    return before || after;
+  }
+
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // When we last scrolled the reader somewhere on purpose. The render sweep
+  // restores the scroll position it started from, which would silently undo
+  // a jump that happened while it ran.
+  let lastJumpAt = 0;
+
+  // Scroll to a source line. Rendering a PR keeps moving the page around
+  // (GitHub renders files lazily and our own injected UI changes heights),
+  // so a single scroll often lands somewhere else a moment later. We scroll,
+  // let the page settle, and correct until the target stops moving.
+  async function jumpToSourceLine(path, line) {
+    lastJumpAt = Date.now();
+    let hit = findBlockForLine(path, line);
+
+    if (!hit) {
+      // The file is not mapped yet: bring it into view, then wait for the
+      // line map to catch up before deciding we cannot do better.
+      const container = await findContainerForPath(path);
+      if (container) scrollToWithStickyOffset(container);
+      for (let i = 0; i < 8 && !hit; i++) {
+        await wait(250);
+        hit = findBlockForLine(path, line);
+      }
+    }
+
+    if (!hit) {
+      const digest = await sha256Hex(path);
+      const target = `diff-${digest}R${line}`;
+      if (window.location.hash === `#${target}`) window.location.hash = '';
+      window.location.hash = target;
       return;
     }
-    const digest = await sha256Hex(path);
-    const container = document.getElementById(`diff-${digest}`);
-    if (container) scrollToWithStickyOffset(container);
-    window.location.hash = `diff-${digest}R${line}`;
+
+    // Correct until the block really sits where we want it. A single
+    // scroll misses whenever the page is still growing: files render
+    // lazily and our own boxes change heights.
+    const STICKY_OFFSET = 120;
+    scrollToWithStickyOffset(hit.el);
+    for (let i = 0; i < 8; i++) {
+      await wait(i < 4 ? 120 : 260);
+      const top = hit.el.getBoundingClientRect().top;
+      const delta = top - STICKY_OFFSET;
+      if (Math.abs(delta) < 6) break;
+      window.scrollBy({ top: delta, behavior: 'instant' });
+    }
+    lastJumpAt = Date.now();
+    hit.el.classList.add('grdc-change-flash');
+    setTimeout(() => hit.el.classList.remove('grdc-change-flash'), 1200);
   }
 
   function buildChangesPane(sidebar) {
@@ -5923,17 +6006,33 @@
   });
 
   let autoRenderedPath = null;
-  let autoRenderRetries = 0;
+  let watchingLateFiles = false;
+
+  // GitHub delivers the changed files a moment after an in-app navigation.
+  // Watch for them, then render once and let init do the rest.
+  async function watchForLateFiles(path) {
+    if (watchingLateFiles) return;
+    watchingLateFiles = true;
+    try {
+      console.log('[GRDC] Auto-render: waiting for the file list…');
+      const found = await waitForRichDiffToggles(15000);
+      if (!found || window.location.pathname !== path) return;
+      autoRenderedPath = null;
+      await init();
+    } finally {
+      watchingLateFiles = false;
+    }
+  }
 
   // Scroll to the OpenSpec proposal of this PR, if it has one.
-  function jumpToProposal() {
+  async function jumpToProposal() {
     let proposal = null;
     pathDigestMap.forEach((p) => {
       if (!proposal && /(^|\/)openspec\/changes\/[^/]+\/proposal\.md$/.test(p)) proposal = p;
     });
     if (!proposal) return;
     console.log(`[GRDC] Jumping to the proposal: ${proposal}`);
-    jumpToSourceLine(proposal, 1);
+    await jumpToSourceLine(proposal, 1);
   }
 
   async function init() {
@@ -5985,20 +6084,19 @@
         // reload never hits because the files are in the first response.
         if (flipped > 0 || expectedMd === 0 || alreadyRich >= expectedMd) {
           autoRenderedPath = path;
-          autoRenderRetries = 0;
-        } else if (autoRenderRetries < 5) {
-          autoRenderRetries++;
-          console.log(`[GRDC] Auto-render found nothing to click, retry ${autoRenderRetries}/5`);
-          setTimeout(() => { if (window.location.pathname === path) init(); }, 700 * autoRenderRetries);
         } else {
+          // GitHub had not delivered the file list yet. Watch for it in the
+          // background instead of blocking startup or re-running init in a
+          // loop — the loop used to scroll the page and undo the jump.
           autoRenderedPath = path;
+          watchForLateFiles(path);
         }
       } catch (e) {
         console.log('[GRDC] Auto-render failed:', e.message);
       }
-      // A retry is coming: take the cover down so the page is usable in
-      // between, and let the next pass put it up again.
-      if (autoRenderedPath !== path && holdingOverlay) {
+      // Nothing rendered: take the cover down so the page stays usable
+      // while we wait for the files.
+      if (!justRendered && holdingOverlay) {
         holdingOverlay = false;
         hideRenderOverlay();
       }
@@ -6026,7 +6124,7 @@
     // After rendering, put the reader where the change starts: the
     // proposal. Skipped when the URL already points somewhere (a link to a
     // file or a thread) so we never fight the user's own destination.
-    if (justRendered && !window.location.hash) jumpToProposal();
+    if (justRendered && !window.location.hash) await jumpToProposal();
 
     // Everything is in place: reveal the settled page in one step.
     if (holdingOverlay) {

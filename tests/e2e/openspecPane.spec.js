@@ -103,3 +103,38 @@ test.describe('OpenSpec pane', () => {
     await expect(page.locator('.grdc-sidebar-tab[data-grdc-tab="spec"]')).toBeHidden();
   });
 });
+
+test.describe('jumping from the Spec pane', () => {
+  test('a row of a rendered file scrolls to that block, not to the first file', async ({ page }) => {
+    await setupFixture(page, 'openspec-proposal', {
+      rawSource: {
+        'README.md': '# Readme\n\nNothing to see here.\n',
+        ...OPENSPEC_FILES,
+      },
+    });
+    const files = ['README.md', ...Object.keys(OPENSPEC_FILES)];
+    await page.route('https://github.com/test-owner/test-repo/pull/1/changes', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ payload: { pullRequestsChangesRoute: {
+          diffSummaries: files.map((p, i) => ({ path: p, pathDigest: `digest${i}`, changeType: 'MODIFIED' })),
+          comparison: { fullDiff: { headOid: FAKE_HEAD_OID } },
+        } } }),
+      }));
+    await gotoPRPage(page);
+    await injectExtension(page);
+    await waitForInit(page);
+    await page.keyboard.press('4');
+
+    await page.locator('.grdc-spec-row', { hasText: 'Architecture' }).first().click();
+    // The target ends up on screen, and the page moved past the first file.
+    const heading = page.locator('h2', { hasText: 'Architecture' });
+    await expect.poll(async () => {
+      const box = await heading.boundingBox();
+      const height = page.viewportSize().height;
+      return box ? box.y >= 0 && box.y < height : null;
+    }, { timeout: 8000 }).toBe(true);
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+  });
+});
