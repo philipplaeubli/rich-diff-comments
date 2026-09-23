@@ -17,3 +17,6 @@ releases/
 test-results/
 playwright-report/
 last-e2e.log
+
+# web-ext sign bookkeeping
+extensions/*/.amo-upload-uuid
