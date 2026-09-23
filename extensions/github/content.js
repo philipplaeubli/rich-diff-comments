@@ -925,9 +925,6 @@
     // "Source diff", "Rich diff", "Display source", "Display rendered",
     // "Source code" / "Rendered" (Primer SegmentedControl on /pull/*/files).
     const match = /source\s*diff|rich\s*diff|render(ed)?\s*diff|display\s+the\s+source|display\s+the\s+rich|\bsource\s+code\b|\brendered\b/.test(haystack);
-    if (match) {
-      console.log('[GRDC] Diff-toggle click detected on:', btn, 'haystack:', haystack.slice(0, 160));
-    }
     return match;
   }
 
@@ -1082,6 +1079,42 @@
     return false;
   }
 
+  // Cheap check before any of the route data has arrived: does this page
+  // mention OpenSpec files at all? The file tree lists every changed path,
+  // so a link is enough to tell.
+  function domHintsAtOpenSpec() {
+    return !!document.querySelector('a[href*="openspec/changes/"], [data-tagsearch-path*="openspec/changes/"]');
+  }
+
+  // Scroll through the page once so GitHub mounts the file headers, and
+  // stop as soon as nothing new appears. Bounded, and it restores the
+  // reader's position.
+  async function preMountFiles() {
+    const startedAt = Date.now();
+    const origScroll = window.scrollY;
+    const step = Math.max(600, window.innerHeight);
+    const countContainers = () => findFileContainers().length;
+    try {
+      let y = 0;
+      let seen = countContainers();
+      let quiet = 0;
+      for (let guard = 0; guard < 40 && Date.now() - startedAt < 2500; guard++) {
+        const docHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+        if (y > docHeight) break;
+        window.scrollTo({ top: y, behavior: 'instant' });
+        await new Promise(r => setTimeout(r, 40));
+        const now = countContainers();
+        quiet = now > seen ? 0 : quiet + 1;
+        seen = now;
+        if (quiet >= 3 && y > 0) break;
+        y += step;
+      }
+      console.log(`[GRDC] pre-mount: ${seen} file containers in ${Date.now() - startedAt}ms`);
+    } finally {
+      if (lastJumpAt <= startedAt) window.scrollTo({ top: origScroll, behavior: 'instant' });
+    }
+  }
+
   async function flipAllMdToRichDiff() {
     const seen = new Set();
     let clicked = 0;
@@ -1117,8 +1150,8 @@
       // every click expanded the file inline, shifting later files
       // down past the scroll cursor before their headers mounted.
       // Separating the phases sidesteps that race entirely.
-      const dwell = 60;
-      const step = Math.max(500, window.innerHeight * 0.9);
+      const dwell = 40;
+      const step = Math.max(600, window.innerHeight);
 
       // How many Markdown files carry a rich-diff toggle right now.
       const mountedMdToggles = () => {
@@ -4938,13 +4971,17 @@
       // A glossary changed in this PR wins over the default locations.
       const inPr = [];
       pathDigestMap.forEach((p) => { if (/(^|\/)GLOSSARY\.md$/i.test(p)) inPr.push(p); });
-      for (const path of [...inPr, ...GLOSSARY_CANDIDATES]) {
-        const src = await fetchRawSource(document, path);
+      // All candidates at once: a missing file costs a 404 round trip, and
+      // doing three of them one after the other is most of a second.
+      const candidates = [...new Set([...inPr, ...GLOSSARY_CANDIDATES])];
+      const sources = await Promise.all(candidates.map(p => fetchRawSource(document, p).catch(() => null)));
+      for (let i = 0; i < candidates.length; i++) {
+        const src = sources[i];
         if (!src) continue;
         const entries = parseGlossary(src);
         if (entries.length === 0) continue;
-        console.log(`[GRDC] Glossary: ${entries.length} terms from ${path}`);
-        return { path, entries, matcher: buildGlossaryMatcher(entries) };
+        console.log(`[GRDC] Glossary: ${entries.length} terms from ${candidates[i]}`);
+        return { path: candidates[i], entries, matcher: buildGlossaryMatcher(entries) };
       }
       return false;
     })();
@@ -5181,10 +5218,15 @@
   let specBuildGeneration = 0;
   const specClosedKeys = new Set();
 
+  const SPEC_KINDS = new Set(['proposal', 'design', 'tasks', 'spec', 'meta']);
+
   function prOpenSpecPaths() {
     const paths = new Set();
     pathDigestMap.forEach((path) => {
-      if (classifyOpenSpecPath(path)) paths.add(path);
+      const c = classifyOpenSpecPath(path);
+      // `other` covers files such as `.gitkeep`, which carry nothing for
+      // the outline; fetching their blob pages cost a round trip each.
+      if (c && SPEC_KINDS.has(c.kind)) paths.add(path);
     });
     return Array.from(paths).sort();
   }
@@ -6141,10 +6183,16 @@
     // `+` buttons feeds polluted text into the matcher.
     clearInjectedDom();
 
-    // Fetch route data first (builds pathDigest map + caches for comments)
+    // Fetch the route data and mount the files at the same time. The route
+    // data is a round trip to GitHub (often most of a second) and the mount
+    // sweep only scrolls, so there is no reason to do them one after the
+    // other. Mounting early makes the later render sweep return at once.
     const t0 = Date.now();
-    await fetchRouteData();
+    const routePromise = fetchRouteData();
+    const mountPromise = (autoRenderEnabled() && domHintsAtOpenSpec()) ? preMountFiles() : null;
+    await routePromise;
     console.log(`[GRDC] route data in ${Date.now() - t0}ms`);
+    if (mountPromise) await mountPromise;
 
     // Start loading the OpenSpec files and the glossary right away, in
     // parallel with rendering and line mapping. They are what the Spec tab
