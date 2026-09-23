@@ -1117,55 +1117,75 @@
       // every click expanded the file inline, shifting later files
       // down past the scroll cursor before their headers mounted.
       // Separating the phases sidesteps that race entirely.
-      const dwell = 100;
-      const step = Math.max(500, window.innerHeight * 0.8);
+      const dwell = 60;
+      const step = Math.max(500, window.innerHeight * 0.9);
 
-      // Phase 1: mount-only sweep. No clicks. Just scroll through the
-      // whole document so GitHub's intersection observers mount every
-      // file header.
+      // How many Markdown files carry a rich-diff toggle right now.
+      const mountedMdToggles = () => {
+        const paths = new Set();
+        for (const container of findFileContainers()) {
+          const path = getContainerPath(container);
+          if (!isMarkdownPath(path)) continue;
+          if (findRichDiffToggleIn(container) || container.querySelector('.prose-diff')) paths.add(path);
+        }
+        return paths.size;
+      };
+
+      // Phase 1: mount sweep. Scroll down only until every expected file
+      // has mounted — most pull requests have their files within the first
+      // screens, and the old version always swept the whole document with
+      // a pause per step, which is where the waiting came from.
       {
         let y = 0;
         let guard = 0;
         while (y < docHeight() && guard < 80) {
+          if (expectedMd && mountedMdToggles() >= expectedMd) break;
           window.scrollTo({ top: y, behavior: 'instant' });
           await new Promise((r) => setTimeout(r, dwell));
           y += step;
           guard++;
         }
-        // Final touch at the very bottom for the last header.
-        window.scrollTo({ top: docHeight(), behavior: 'instant' });
-        await new Promise((r) => setTimeout(r, 200));
-        console.log(`[GRDC] flipAllMdToRichDiff: phase 1 (mount sweep) done`);
+        console.log(`[GRDC] flipAllMdToRichDiff: phase 1 (mount sweep) done in ${Date.now() - startedAt}ms — ${mountedMdToggles()}/${expectedMd || '?'} mounted`);
       }
 
-      // Phase 2: click sweep. All headers should now be in the DOM, so
-      // a single top→bottom pass with clicks is enough.
+      // Phase 2: the toggles are in the DOM now, so click them where they
+      // are. No second sweep: clicking does not need the file on screen.
       {
-        let y = 0;
-        let guard = 0;
-        // First scan from current position (bottom of doc) before
-        // scrolling back to top — catches any toggles still in view.
         clicked += clickRichTogglesOnce(seen);
-        window.scrollTo({ top: 0, behavior: 'instant' });
-        await new Promise((r) => setTimeout(r, dwell));
-        clicked += clickRichTogglesOnce(seen);
-        while (y < docHeight() && guard < 80) {
+        for (let i = 0; i < 6; i++) {
           if (expectedMd && seen.size >= expectedMd) break;
-          window.scrollTo({ top: y, behavior: 'instant' });
-          await new Promise((r) => setTimeout(r, dwell));
+          await new Promise((r) => setTimeout(r, 120));
           clicked += clickRichTogglesOnce(seen);
-          y += step;
-          guard++;
         }
-        console.log(`[GRDC] flipAllMdToRichDiff: phase 2 (click sweep) done — ${seen.size}/${expectedMd || '?'}`);
+        // Only if files are still missing do we fall back to sweeping.
+        if (expectedMd && seen.size < expectedMd) {
+          let y = 0;
+          let guard = 0;
+          while (y < docHeight() && guard < 80 && seen.size < expectedMd) {
+            window.scrollTo({ top: y, behavior: 'instant' });
+            await new Promise((r) => setTimeout(r, dwell));
+            clicked += clickRichTogglesOnce(seen);
+            y += step;
+            guard++;
+          }
+        }
+        console.log(`[GRDC] flipAllMdToRichDiff: phase 2 (clicks) done — ${seen.size}/${expectedMd || '?'}`);
+      }
+
+      // Wait for GitHub to actually render what we clicked, so the caller
+      // maps blocks against finished DOM instead of re-running later.
+      if (clicked) {
+        for (let i = 0; i < 20; i++) {
+          if (document.querySelectorAll('.prose-diff').length >= seen.size) break;
+          await new Promise((r) => setTimeout(r, 150));
+        }
       }
     } finally {
       // Do not fight a jump that happened while the sweep ran.
       if (lastJumpAt <= startedAt) window.scrollTo({ top: origScroll, behavior: 'instant' });
       hideRenderOverlay();
     }
-    console.log(`[GRDC] flipAllMdToRichDiff: scanned ${seen.size}/${expectedMd || '?'} md file(s); clicked ${clicked}`);
-    setTimeout(() => { try { buildThreadsSidebar(); } catch (_) {} }, 400);
+    console.log(`[GRDC] flipAllMdToRichDiff: scanned ${seen.size}/${expectedMd || '?'} md file(s); clicked ${clicked} in ${Date.now() - startedAt}ms`);
     return clicked;
   }
 
@@ -4905,6 +4925,7 @@
   let glossary = null;          // { path, entries, matcher } | null
   let glossaryLoading = null;   // Promise while loading
   let glossaryHits = new Map(); // text node → [{ start, end, entry, range }]
+  let glossaryDone = new WeakSet(); // blocks already scanned
 
   function glossaryEnabled() {
     try { return localStorage.getItem(GLOSSARY_KEY) !== '0'; } catch (_) { return true; }
@@ -4935,20 +4956,37 @@
   function clearGlossaryHighlights() {
     if (glossaryHighlight) glossaryHighlight.clear();
     glossaryHits = new Map();
+    glossaryDone = new WeakSet();
     hideGlossaryPop();
   }
 
+  // Drop ranges whose text left the page, keeping the rest. Cheaper than
+  // scanning every block again after each re-render.
+  function pruneGlossaryHighlights() {
+    if (!glossaryHighlight) return;
+    for (const [node, hits] of Array.from(glossaryHits)) {
+      if (node.isConnected) continue;
+      hits.forEach(h => glossaryHighlight.delete(h.range));
+      glossaryHits.delete(node);
+    }
+  }
+
   async function applyGlossaryHighlights() {
-    clearGlossaryHighlights();
-    if (!glossaryHighlight || !glossaryEnabled()) return;
+    if (!glossaryHighlight) return;
+    if (!glossaryEnabled()) {
+      clearGlossaryHighlights();
+      return;
+    }
     const g = await loadGlossary();
     if (!g || !g.matcher) return;
-    clearGlossaryHighlights();
+    pruneGlossaryHighlights();
 
     const seenNodes = new Set();
     fileLineMap.forEach((info, block) => {
       if (!block.isConnected || block.tagName === 'PRE') return;
       if (info.path === g.path) return; // the glossary itself
+      if (glossaryDone.has(block)) return;
+      glossaryDone.add(block);
       const usedTerms = new Set();
       const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
       let node;
@@ -6058,7 +6096,32 @@
     await jumpToSourceLine(proposal, 1);
   }
 
+  let initRunning = false;
+  let initQueued = false;
+
+  // One startup at a time. GitHub's own re-renders and our injected UI both
+  // wake the MutationObserver, and overlapping startups used to fetch,
+  // match and re-render everything several times over.
   async function init() {
+    if (initRunning) {
+      initQueued = true;
+      return;
+    }
+    initRunning = true;
+    const startedAt = Date.now();
+    try {
+      await runInit();
+    } finally {
+      initRunning = false;
+      console.log(`[GRDC] init finished in ${Date.now() - startedAt}ms`);
+      if (initQueued) {
+        initQueued = false;
+        scheduleReinit();
+      }
+    }
+  }
+
+  async function runInit() {
     prInfo = parsePRUrl();
     if (!prInfo) return;
 
@@ -6079,7 +6142,18 @@
     clearInjectedDom();
 
     // Fetch route data first (builds pathDigest map + caches for comments)
+    const t0 = Date.now();
     await fetchRouteData();
+    console.log(`[GRDC] route data in ${Date.now() - t0}ms`);
+
+    // Start loading the OpenSpec files and the glossary right away, in
+    // parallel with rendering and line mapping. They are what the Spec tab
+    // needs, and waiting for them at the end is why the outline used to
+    // appear long after everything else.
+    const specPrefetch = Promise.all(
+      prOpenSpecPaths().map(p => fetchRawSource(document, p))
+    ).catch(() => {});
+    loadGlossary().catch(() => {});
 
     // Render the changed Markdown files without being asked. Reviewers open
     // /files or /changes to read the prose, and every feature here needs the
@@ -6137,14 +6211,19 @@
     // multi-file PRs.
     const commentsPromise = fetchExistingComments();
 
+    const tMap = Date.now();
     await buildLineMap();
     attachCommentButtons();
     attachCollapseToggles();
+    console.log(`[GRDC] line map + buttons in ${Date.now() - tMap}ms`);
 
     existingComments = await commentsPromise;
     console.log(`[GRDC] Fetched ${existingComments.length} existing comments`);
+    const tRender = Date.now();
     renderExistingComments();
+    await specPrefetch;
     buildThreadsSidebar();
+    console.log(`[GRDC] threads + panes in ${Date.now() - tRender}ms`);
     applyGlossaryHighlights().catch((e) => console.log('[GRDC] Glossary failed:', e.message));
 
     // After rendering, put the reader where the change starts: the
@@ -6205,6 +6284,9 @@
 
   function observe() {
     const observer = new MutationObserver((mutations) => {
+      // While we render or start up, the page changes constantly — and all
+      // of it is our own doing. Watching it only queues repeat work.
+      if (initRunning || renderOverlayCount > 0) return;
       for (const m of mutations) {
         for (const node of m.addedNodes) {
           if (node.nodeType !== 1) continue;

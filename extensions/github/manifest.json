@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Markdown PR Sentence Comments for GitHub",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "description": "Comment on sentences, reply, resolve, and collapse sections directly in GitHub PR rich-diff (rendered markdown) view.",
   "author": "chienyuanchang, Firefox port by Phil Läubli",
   "homepage_url": "https://github.com/grizzi/rich-diff-comments",
