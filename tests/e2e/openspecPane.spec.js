@@ -37,7 +37,7 @@ async function setup(page, files) {
 }
 
 test.describe('OpenSpec pane', () => {
-  test('shows the change outline with requirements, warnings and tasks', async ({ page }) => {
+  test('shows the change outline with decisions, requirements, warnings and tasks', async ({ page }) => {
     await setup(page, OPENSPEC_FILES);
     const tab = page.locator('.grdc-sidebar-tab[data-grdc-tab="spec"]');
     await expect(tab).toBeVisible();
@@ -47,14 +47,18 @@ test.describe('OpenSpec pane', () => {
 
     await expect(pane.locator('.grdc-spec-change-name')).toHaveText('add-reminders');
     await expect(pane.locator('.grdc-spec-pill-schema')).toHaveText('spec-driven');
-    await expect(pane.locator('.grdc-spec-stats')).toHaveText('2 capabilities · 5 requirements · 6 scenarios · tasks 2/5');
+    await expect(pane.locator('.grdc-spec-stats')).toHaveText('2 capabilities · 5 requirements · 6 scenarios · 2 decisions · tasks 2/5');
     await expect(pane.locator('.grdc-spec-warn-summary')).toContainText('2 validation warnings');
     await expect(pane.locator('.grdc-spec-req-row')).toHaveCount(5);
     await expect(pane.locator('.grdc-spec-req-row.grdc-spec-op-removed')).toHaveText(/SMS reminders/);
     await expect(pane.locator('.grdc-spec-task-done')).toHaveCount(2);
+    await expect(pane.locator('.grdc-spec-decision')).toHaveText(['D1. Remind from a nightly job', 'D2. Email only']);
+    // The schema's reading order: proposal, decisions, specs, tasks.
+    const sections = await pane.locator('.grdc-spec-change > details > summary').allTextContents();
+    expect(sections.map((s) => s.replace(/\d.*$/, '').trim())).toEqual(['Proposal', 'Architecture decisions', 'Specs', 'Tasks']);
 
     if (process.env.GRDC_SCREENSHOT_DIR) {
-      await page.locator('.grdc-sidebar').screenshot({ path: path.join(process.env.GRDC_SCREENSHOT_DIR, 'spec-pane.png') });
+      await pane.screenshot({ path: path.join(process.env.GRDC_SCREENSHOT_DIR, 'spec-pane.png') });
     }
   });
 
@@ -74,16 +78,16 @@ test.describe('OpenSpec pane', () => {
     await page.keyboard.press('4');
     const count = page.locator('.grdc-specnav-count');
     // Every row of the outline except the scenarios: proposal sections,
-    // delta groups, requirements, task groups and tasks.
-    await expect(count).toHaveText('1/21');
+    // decisions, delta groups, requirements, task groups and tasks.
+    await expect(count).toHaveText('1/23');
     // The first click lands on the first row, the next one moves on.
     await page.locator('.grdc-specnav-next').click();
-    await expect(count).toHaveText('1/21');
+    await expect(count).toHaveText('1/23');
     await page.locator('.grdc-specnav-next').click();
-    await expect(count).toHaveText('2/21');
+    await expect(count).toHaveText('2/23');
     await page.locator('.grdc-specnav-prev').click();
     await page.locator('.grdc-specnav-prev').click();
-    await expect(count).toHaveText('21/21');
+    await expect(count).toHaveText('23/23');
   });
 
   test('rows the PR changed are marked, and "Changed only" keeps just those', async ({ page }) => {

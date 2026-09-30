@@ -1,12 +1,14 @@
 /**
  * OpenSpec helpers: recognise OpenSpec files in a PR and parse them into a
- * review outline (proposal sections, spec requirements and scenarios,
- * tasks with progress, plus the validation warnings OpenSpec itself raises).
+ * review outline (proposal sections, architecture decisions, spec
+ * requirements and scenarios, tasks with progress, plus the validation
+ * warnings OpenSpec itself raises).
  *
  * Layout this understands (https://github.com/Fission-AI/OpenSpec):
  *   openspec/changes/<change>/.openspec.yaml        schema: <name>
- *   openspec/changes/<change>/proposal.md           ## Why, ## What Changes, ...
- *   openspec/changes/<change>/design.md             (optional)
+ *   openspec/changes/<change>/proposal.md           ## Summary, ## Architecture, ...
+ *   openspec/changes/<change>/design.md             (optional, older schemas)
+ *   openspec/changes/<change>/architecture-decisions.md   ## D1. <decision>, ## D2. ...
  *   openspec/changes/<change>/tasks.md              ## 1. Group / - [ ] 1.1 Task
  *   openspec/changes/<change>/specs/<cap>/spec.md   ## ADDED Requirements / ### Requirement: / #### Scenario:
  *   openspec/specs/<cap>/spec.md                    ## Requirements (main specs)
@@ -27,10 +29,13 @@
 
   const DELTA_OPS = ['ADDED', 'MODIFIED', 'REMOVED', 'RENAMED'];
 
+  // A new capability's Purpose shorter than this fails `openspec validate --strict`.
+  const MIN_PURPOSE = 50;
+
   /**
    * Classify a repo path. Returns null for non-OpenSpec paths, otherwise
    * { change, kind, capability } where `change` is null for main specs and
-   * `kind` is one of proposal | design | tasks | spec | meta | other.
+   * `kind` is one of proposal | design | decisions | tasks | spec | meta | other.
    */
   function classifyOpenSpecPath(path) {
     const p = String(path || '');
@@ -40,6 +45,7 @@
       const rest = m[2];
       if (rest === 'proposal.md') return { change, kind: 'proposal', capability: null };
       if (rest === 'design.md') return { change, kind: 'design', capability: null };
+      if (rest === 'architecture-decisions.md') return { change, kind: 'decisions', capability: null };
       if (rest === 'tasks.md') return { change, kind: 'tasks', capability: null };
       if (rest === '.openspec.yaml') return { change, kind: 'meta', capability: null };
       const s = rest.match(/^specs\/(.+)\/spec\.md$/);
@@ -80,6 +86,30 @@
       if (m) out.push({ level: m[1].length, title: m[2], line });
     }
     return out;
+  }
+
+  /**
+   * Parse architecture-decisions.md: one `## D<n>. <decision>` heading per
+   * decision. Returns { decisions: [{ number, title, line, endLine }], warnings }
+   * where a warning flags a heading that is not numbered D1, D2 and so on.
+   */
+  function parseDecisions(source) {
+    const total = lineCount(source);
+    const decisions = [];
+    const warnings = [];
+    for (const [line, text] of proseLines(source)) {
+      const h = text.match(/^##\s+(.+?)\s*#*\s*$/);
+      if (!h || text.startsWith('###')) continue;
+      const prev = decisions[decisions.length - 1];
+      if (prev) prev.endLine = line - 1;
+      const n = h[1].match(/^D(\d+)\.\s*(.*)$/);
+      const expected = decisions.length + 1;
+      const decision = { number: n ? Number(n[1]) : null, title: n ? n[2] : h[1], line, endLine: total };
+      decisions.push(decision);
+      if (!n) warnings.push({ line, message: 'Not numbered D1, D2, …' });
+      else if (decision.number !== expected) warnings.push({ line, message: `Numbered D${decision.number}, expected D${expected}` });
+    }
+    return { decisions, warnings };
   }
 
   /** Read `schema: <name>` from .openspec.yaml. */
@@ -126,7 +156,7 @@
       if (h3) {
         closeReq(line - 1);
         if (!group) { group = { op: null, title: 'Requirements', line, requirements: [] }; groups.push(group); }
-        req = { name: h3[1], line, endLine: total, scenarios: [], normative: false, bodyEmpty: true };
+        req = { name: h3[1], line, endLine: total, scenarios: [], normative: false, bodyEmpty: true, reason: false, migration: false };
         group.requirements.push(req);
         continue;
       }
@@ -146,6 +176,8 @@
       if (req && req.scenarios.length === 0 && text.trim()) {
         req.bodyEmpty = false;
         if (/\b(SHALL|MUST)\b/.test(text)) req.normative = true;
+        if (/\*\*Reason\*\*/.test(text)) req.reason = true;
+        if (/\*\*Migration\*\*/.test(text)) req.migration = true;
       }
     }
     closeReq(total);
@@ -161,19 +193,30 @@
 
   /**
    * Validation warnings in the spirit of `openspec validate`:
-   * a requirement needs SHALL/MUST text and at least one scenario, except in
-   * REMOVED / RENAMED groups which carry no body.
+   * a requirement needs SHALL/MUST text and at least one scenario, a REMOVED
+   * one needs a **Reason** and a **Migration**, RENAMED ones carry no body,
+   * and a Purpose needs at least 50 characters.
    */
   function lintSpec(parsed) {
     const warnings = [];
     for (const g of parsed.groups) {
-      if (g.op === 'REMOVED' || g.op === 'RENAMED') continue;
+      if (g.op === 'RENAMED') continue;
+      if (g.op === 'REMOVED') {
+        for (const r of g.requirements) {
+          if (!r.reason) warnings.push({ line: r.line, requirement: r.name, message: 'Removed without a **Reason**' });
+          if (!r.migration) warnings.push({ line: r.line, requirement: r.name, message: 'Removed without a **Migration**' });
+        }
+        continue;
+      }
       for (const r of g.requirements) {
         if (r.scenarios.length === 0) warnings.push({ line: r.line, requirement: r.name, message: 'No scenario' });
         if (!r.normative) warnings.push({ line: r.line, requirement: r.name, message: 'No SHALL or MUST' });
       }
     }
     if (parsed.groups.length === 0) warnings.push({ line: 1, requirement: null, message: 'No requirements section' });
+    if (parsed.purpose && parsed.purpose.text.length < MIN_PURPOSE) {
+      warnings.push({ line: parsed.purpose.line, requirement: null, message: `Purpose shorter than ${MIN_PURPOSE} characters` });
+    }
     return warnings;
   }
 
@@ -223,13 +266,13 @@
    * Build the outline model from the PR's OpenSpec files.
    * @param {Array<{path: string, source: string|null}>} files
    * @returns {Array} one entry per change (main-spec edits under change `null`), in order:
-   *   { change, schema, metaPath, proposal, design, specs: [...], tasks, stats }
+   *   { change, schema, metaPath, proposal, design, decisions, specs: [...], tasks, stats }
    */
   function buildOpenSpecOutline(files) {
     const byChange = new Map();
     const get = (id) => {
       if (!byChange.has(id)) {
-        byChange.set(id, { change: id, schema: null, metaPath: null, proposal: null, design: null, specs: [], tasks: null });
+        byChange.set(id, { change: id, schema: null, metaPath: null, proposal: null, design: null, decisions: null, specs: [], tasks: null });
       }
       return byChange.get(id);
     };
@@ -244,6 +287,7 @@
       }
       if (c.kind === 'meta') { entry.schema = parseMeta(f.source).schema; entry.metaPath = f.path; }
       if (c.kind === 'proposal' || c.kind === 'design') entry[c.kind] = { path: f.path, sections: parseSections(f.source) };
+      if (c.kind === 'decisions') entry.decisions = { path: f.path, parsed: parseDecisions(f.source) };
       if (c.kind === 'tasks') entry.tasks = { path: f.path, parsed: parseTasks(f.source) };
       if (c.kind === 'spec') {
         const parsed = parseSpec(f.source);
@@ -253,7 +297,11 @@
     const out = [];
     for (const entry of byChange.values()) {
       entry.specs.sort((a, b) => a.capability.localeCompare(b.capability));
-      const stats = { capabilities: entry.specs.length, requirements: 0, scenarios: 0, warnings: 0, tasksDone: 0, tasksTotal: 0 };
+      const stats = { capabilities: entry.specs.length, requirements: 0, scenarios: 0, decisions: 0, warnings: 0, tasksDone: 0, tasksTotal: 0 };
+      if (entry.decisions && entry.decisions.parsed) {
+        stats.decisions = entry.decisions.parsed.decisions.length;
+        stats.warnings += entry.decisions.parsed.warnings.length;
+      }
       for (const s of entry.specs) {
         if (!s.parsed) continue;
         stats.requirements += s.parsed.requirementCount;
@@ -303,6 +351,7 @@
     classifyOpenSpecPath,
     parseSections,
     parseMeta,
+    parseDecisions,
     parseSpec,
     lintSpec,
     parseTasks,

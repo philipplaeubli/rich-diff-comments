@@ -5,6 +5,7 @@ const {
   classifyOpenSpecPath,
   parseSections,
   parseMeta,
+  parseDecisions,
   parseSpec,
   lintSpec,
   parseTasks,
@@ -17,7 +18,7 @@ const {
 const SPEC = [
   '## Purpose',                                        // 1
   '',                                                  // 2
-  'Sends reminders so nobody misses a due date.',      // 3
+  'Sends reminders so that nobody misses a due date again.', // 3
   '',                                                  // 4
   '## ADDED Requirements',                             // 5
   '',                                                  // 6
@@ -52,6 +53,7 @@ const SPEC = [
   '',                                                  // 35
   '### Requirement: SMS reminders',                    // 36
   '**Reason**: nobody used it',                        // 37
+  '**Migration**: email reminders cover the same need', // 38
 ].join('\n');
 
 const TASKS = [
@@ -71,6 +73,8 @@ test('classifyOpenSpecPath recognises change artifacts and main specs', () => {
     { change: 'add-reminders', kind: 'proposal', capability: null });
   assert.deepStrictEqual(classifyOpenSpecPath('openspec/changes/add-reminders/specs/notify/reminders/spec.md'),
     { change: 'add-reminders', kind: 'spec', capability: 'notify/reminders' });
+  assert.deepStrictEqual(classifyOpenSpecPath('openspec/changes/add-reminders/architecture-decisions.md'),
+    { change: 'add-reminders', kind: 'decisions', capability: null });
   assert.deepStrictEqual(classifyOpenSpecPath('openspec/changes/add-reminders/.openspec.yaml'),
     { change: 'add-reminders', kind: 'meta', capability: null });
   assert.deepStrictEqual(classifyOpenSpecPath('openspec/specs/notify/spec.md'),
@@ -83,7 +87,7 @@ test('classifyOpenSpecPath recognises change artifacts and main specs', () => {
 test('parseSpec reads delta groups, requirements, scenarios and ranges', () => {
   const s = parseSpec(SPEC);
   assert.strictEqual(s.purpose.line, 1);
-  assert.strictEqual(s.purpose.text, 'Sends reminders so nobody misses a due date.');
+  assert.strictEqual(s.purpose.text, 'Sends reminders so that nobody misses a due date again.');
   assert.deepStrictEqual(s.groups.map(g => g.op), ['ADDED', 'MODIFIED', 'REMOVED']);
   const [first, second] = s.groups[0].requirements;
   assert.strictEqual(first.name, 'Reminders are sent before due');
@@ -103,6 +107,56 @@ test('lintSpec flags missing scenarios and missing SHALL, but not REMOVED', () =
   const w = lintSpec(parseSpec(SPEC));
   assert.deepStrictEqual(w.map(x => [x.line, x.message]), [[18, 'No scenario'], [18, 'No SHALL or MUST']]);
   assert.deepStrictEqual(lintSpec(parseSpec('# nothing')).map(x => x.message), ['No requirements section']);
+});
+
+test('lintSpec wants a Reason and a Migration on REMOVED, and a Purpose of 50 characters', () => {
+  const spec = [
+    '## Purpose',                     // 1
+    '',                               // 2
+    'Too short.',                     // 3
+    '',                               // 4
+    '## REMOVED Requirements',        // 5
+    '',                               // 6
+    '### Requirement: Old export',    // 7
+    '**Reason**: nobody used it',     // 8
+    '',                               // 9
+    '## RENAMED Requirements',        // 10
+    '',                               // 11
+    '- FROM: `### Requirement: A`',   // 12
+    '- TO: `### Requirement: B`',     // 13
+  ].join('\n');
+  assert.deepStrictEqual(lintSpec(parseSpec(spec)).map(x => [x.line, x.message]), [
+    [7, 'Removed without a **Migration**'],
+    [1, 'Purpose shorter than 50 characters'],
+  ]);
+});
+
+test('parseDecisions reads one decision per D<n> heading, with ranges and numbering warnings', () => {
+  const doc = [
+    '## D1. Remind from a nightly job',  // 1
+    '',                                  // 2
+    'Why, and what lost.',               // 3
+    '',                                  // 4
+    '```md',                             // 5
+    '## D9. inside a fence is ignored',  // 6
+    '```',                               // 7
+    '',                                  // 8
+    '### A detail stays inside D1',      // 9
+    '',                                  // 10
+    '## D3. Email only',                 // 11
+    '',                                  // 12
+    '## Notes',                          // 13
+  ].join('\n');
+  const d = parseDecisions(doc);
+  assert.deepStrictEqual(d.decisions.map(x => [x.number, x.title, x.line, x.endLine]), [
+    [1, 'Remind from a nightly job', 1, 10],
+    [3, 'Email only', 11, 12],
+    [null, 'Notes', 13, 13],
+  ]);
+  assert.deepStrictEqual(d.warnings.map(w => [w.line, w.message]), [
+    [11, 'Numbered D3, expected D2'],
+    [13, 'Not numbered D1, D2, …'],
+  ]);
 });
 
 test('parseSpec reads a main spec with a plain Requirements section', () => {
@@ -133,6 +187,7 @@ test('buildOpenSpecOutline groups files per change with stats', () => {
     { path: 'openspec/changes/add-reminders/tasks.md', source: TASKS },
     { path: 'openspec/changes/add-reminders/specs/notify/spec.md', source: SPEC },
     { path: 'openspec/changes/add-reminders/proposal.md', source: '## Why\nx\n' },
+    { path: 'openspec/changes/add-reminders/architecture-decisions.md', source: '## D1. Nightly job\n\n## D2. Email only\n' },
     { path: 'openspec/changes/add-reminders/.openspec.yaml', source: 'schema: spec-driven\n' },
     { path: 'openspec/specs/other/spec.md', source: '## Requirements\n' },
     { path: 'README.md', source: '# hi' },
@@ -141,7 +196,8 @@ test('buildOpenSpecOutline groups files per change with stats', () => {
   const c = out[0];
   assert.strictEqual(c.schema, 'spec-driven');
   assert.strictEqual(c.proposal.sections[0].title, 'Why');
-  assert.deepStrictEqual(c.stats, { capabilities: 1, requirements: 4, scenarios: 3, warnings: 2, tasksDone: 2, tasksTotal: 4 });
+  assert.deepStrictEqual(c.decisions.parsed.decisions.map(d => d.title), ['Nightly job', 'Email only']);
+  assert.deepStrictEqual(c.stats, { capabilities: 1, requirements: 4, scenarios: 3, decisions: 2, warnings: 2, tasksDone: 2, tasksTotal: 4 });
 });
 
 test('buildOpenSpecOutline keeps files whose source could not be loaded', () => {

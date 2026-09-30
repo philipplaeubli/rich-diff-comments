@@ -1,14 +1,15 @@
 /**
  * A synthetic OpenSpec change used by openspecPane.spec.js.
- * Two capabilities, five requirements, six scenarios, two validation
- * warnings (line 18 of the reminders spec), and tasks at 2/5.
+ * Two capabilities, five requirements, six scenarios, two architecture
+ * decisions, two validation warnings (line 18 of the reminders spec), and
+ * tasks at 2/5.
  */
 const CHANGE = 'openspec/changes/add-reminders';
 
 const REMINDERS_SPEC = [
   '## Purpose',                                        // 1
   '',                                                  // 2
-  'Sends reminders so nobody misses a due date.',      // 3
+  'Sends reminders so that nobody misses a due date again.', // 3
   '',                                                  // 4
   '## ADDED Requirements',                             // 5
   '',                                                  // 6
@@ -39,6 +40,7 @@ const REMINDERS_SPEC = [
   '',                                                  // 31
   '### Requirement: SMS reminders',                    // 32
   '**Reason**: nobody used it',                        // 33
+  '**Migration**: email reminders cover the same need', // 34
 ].join('\n');
 
 const DIGEST_SPEC = [
@@ -61,11 +63,11 @@ const DIGEST_SPEC = [
 ].join('\n');
 
 const PROPOSAL = [
-  '## Why',
+  '## Management Summary',
   '',
   'People miss due dates.',
   '',
-  '## What Changes',
+  '## Before and After',
   '',
   '- Reminders one day before a due date',
   '',
@@ -75,9 +77,19 @@ const PROPOSAL = [
   '',
   '## Architecture',
   '',
-  '### Where reminders are scheduled',
+  '### System Context',
   '',
   'A nightly job.',
+].join('\n');
+
+const DECISIONS = [
+  '## D1. Remind from a nightly job',
+  '',
+  'A daily reminder needs no event stream.',
+  '',
+  '## D2. Email only',
+  '',
+  'Push needs an app that we do not have.',
 ].join('\n');
 
 const TASKS = [
@@ -97,6 +109,7 @@ module.exports = {
   OPENSPEC_FILES: {
     [`${CHANGE}/.openspec.yaml`]: 'schema: spec-driven\ncreated: 2026-09-01\n',
     [`${CHANGE}/proposal.md`]: PROPOSAL,
+    [`${CHANGE}/architecture-decisions.md`]: DECISIONS,
     [`${CHANGE}/specs/notify/reminders/spec.md`]: REMINDERS_SPEC,
     [`${CHANGE}/specs/notify/digest/spec.md`]: DIGEST_SPEC,
     [`${CHANGE}/tasks.md`]: TASKS,

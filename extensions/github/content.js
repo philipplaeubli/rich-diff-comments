@@ -5218,7 +5218,7 @@
   let specBuildGeneration = 0;
   const specClosedKeys = new Set();
 
-  const SPEC_KINDS = new Set(['proposal', 'design', 'tasks', 'spec', 'meta']);
+  const SPEC_KINDS = new Set(['proposal', 'design', 'decisions', 'tasks', 'spec', 'meta']);
 
   function prOpenSpecPaths() {
     const paths = new Set();
@@ -5338,6 +5338,7 @@
         `${st.requirements} requirement${st.requirements === 1 ? '' : 's'}`,
         `${st.scenarios} scenario${st.scenarios === 1 ? '' : 's'}`,
       ];
+      if (st.decisions) bits.push(`${st.decisions} decision${st.decisions === 1 ? '' : 's'}`);
       if (st.tasksTotal) bits.push(`tasks ${st.tasksDone}/${st.tasksTotal}`);
       box.appendChild(specEl('div', 'grdc-spec-stats', bits.join(' · ')));
       if (st.warnings) {
@@ -5367,6 +5368,34 @@
         box.appendChild(sec);
       }
 
+      // Architecture decisions: one row per `## D<n>.` heading.
+      if (c.decisions) {
+        const doc = c.decisions;
+        const parsed = doc.parsed;
+        const summary = ['Architecture decisions'];
+        if (parsed) {
+          summary.push(specPill(String(parsed.decisions.length), null, 'Decisions'));
+          if (parsed.warnings.length) summary.push(specPill(`⚠ ${parsed.warnings.length}`, 'warn', parsed.warnings.map(w => w.message).join('\n')));
+        }
+        const sec = specSection(key('decisions'), summary, true);
+        if (!parsed) sec.appendChild(specEl('div', 'grdc-spec-loading', 'Loading…'));
+        else {
+          for (const d of parsed.decisions) {
+            const warns = parsed.warnings.filter(w => w.line === d.line);
+            const n = countThreadsInRange(heads, doc.path, d.line, d.endLine);
+            const pills = [];
+            if (n) pills.push(specPill(`💬 ${n}`, 'threads', `${n} thread${n === 1 ? '' : 's'}`));
+            if (warns.length) pills.push(specPill('⚠', 'warn', warns.map(w => w.message).join('\n')));
+            const label = d.number != null ? `D${d.number}. ${plainInline(d.title, 80)}` : plainInline(d.title, 80);
+            sec.appendChild(specRow(label, doc.path, d.line, {
+              className: 'grdc-spec-decision', pills,
+              changed: isChanged(doc.path, d.line, d.endLine),
+            }));
+          }
+        }
+        box.appendChild(sec);
+      }
+
       // Specs: capability → delta group → requirement → scenarios.
       if (c.specs.length) {
         const specsSec = specSection(key('specs'), ['Specs'], true);
@@ -5384,6 +5413,7 @@
               capSec.appendChild(specRow(plainInline(spec.parsed.purpose.text || 'Purpose', 90), spec.path, spec.parsed.purpose.line, {
                 className: 'grdc-spec-purpose', title: 'Purpose',
                 changed: isChanged(spec.path, spec.parsed.purpose.line, spec.parsed.purpose.line + 2),
+                pills: spec.warnings.filter(w => w.line === spec.parsed.purpose.line).map(w => specPill('⚠', 'warn', w.message)),
               }));
             }
             for (const g of spec.parsed.groups) {
